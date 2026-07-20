@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { GetStepTools } from "inngest";
 import { toolDefinitions } from "./tools";
 import type { inngest } from "./inngest/client";
+import { toolFunctions } from "./inngest/tool-functions";
 
 // ANTHROPIC_BASE_URL lets this point at any Anthropic-compatible endpoint.
 const client = new Anthropic({
@@ -33,28 +34,28 @@ export async function runAgent(step: Step, prompt: string): Promise<Anthropic.Co
       return response.content;
     }
 
-    // Trigger the tool's own Inngest function, then wait for it to reply.
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of response.content) {
-      if (block.type !== "tool_use") continue;
+    // Invoke each requested tool as its own durable step. step.invoke resolves
+    // the tool's Inngest function by name, runs it (with its own retries), and
+    // returns the result directly — no completion event or toolCallId matching.
+    // Promise.all fans out multiple tool calls in one turn; each invoke is its
+    // own memoized step and results map back by return value, so they can't
+    // cross-wire.
+    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+      response.content
+        .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
+        .map(async (block, i) => {
+          const fn = toolFunctions[block.name];
+          if (!fn) throw new Error(`Unknown tool: ${block.name}`);
 
-      await step.sendEvent(`trigger-${block.name}`, {
-        name: `tool/${block.name}.requested`,
-        data: { toolCallId: block.id, input: block.input },
-      });
+          const content = await step.invoke(`run-${block.name}-${i}`, {
+            function: fn,
+            // toolCallId flows through as the idempotency key (see tools.ts).
+            data: { input: block.input, toolCallId: block.id },
+          });
 
-      const completion = await step.waitForEvent(`wait-${block.name}`, {
-        event: `tool/${block.name}.completed`,
-        timeout: "5m",
-        if: `async.data.toolCallId == ${JSON.stringify(block.id)}`,
-      });
-
-      if (!completion) {
-        throw new Error(`tool ${block.name} did not complete within 5m`);
-      }
-
-      toolResults.push({ type: "tool_result", tool_use_id: block.id, content: completion.data.result });
-    }
+          return { type: "tool_result", tool_use_id: block.id, content };
+        }),
+    );
 
     messages.push({ role: "user", content: toolResults });
   }

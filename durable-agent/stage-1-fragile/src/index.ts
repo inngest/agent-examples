@@ -1,7 +1,8 @@
 import { runAgent } from "./agent";
 import { isKillSwitchEnabled, setKillSwitch } from "./tools";
-import { inngest } from "./inngest/client";
 
+// Stage 2 keeps these routes but registers its Inngest functions here via
+// connect() (an outbound WebSocket), so the agent run happens in the background.
 
 Bun.serve({
   port: Number(process.env.PORT ?? 3000),
@@ -9,8 +10,8 @@ Bun.serve({
     "/api/agent": {
       async POST(req) {
         const { prompt } = await req.json();
-        const { ids } = await inngest.send({ name: "agent/run.requested", data: { prompt } });
-        return Response.json({ eventId: ids[0] });
+        const content = await runAgent(prompt);
+        return Response.json({ content });
       },
     },
     "/api/kill-switch": {
