@@ -1,7 +1,6 @@
 import { runAgent } from "./agent";
-import { isKillSwitchEnabled, setKillSwitch } from "./tools";
 
-// Stage 2 keeps these routes but registers its Inngest functions here via
+// Stage 2 keeps this route but registers its Inngest functions here via
 // connect() (an outbound WebSocket), so the agent run happens in the background.
 
 Bun.serve({
@@ -12,16 +11,6 @@ Bun.serve({
         const { prompt } = await req.json();
         const content = await runAgent(prompt);
         return Response.json({ content });
-      },
-    },
-    "/api/kill-switch": {
-      async POST(req) {
-        const { enabled } = await req.json();
-        setKillSwitch(Boolean(enabled));
-        return Response.json({ killSwitchEnabled: isKillSwitchEnabled() });
-      },
-      GET() {
-        return Response.json({ killSwitchEnabled: isKillSwitchEnabled() });
       },
     },
   },

@@ -153,7 +153,6 @@ WebSocket from the worker — so there's no inbound `/api/inngest` serve endpoin
 +import { inngest } from "./inngest/client";
 +import { runAgentFn } from "./inngest/functions";
 +import { toolFunctions } from "./inngest/tool-functions";
- import { isKillSwitchEnabled, setKillSwitch } from "./tools";
 +
 +// step.invoke routes to a served function, so every tool function is registered
 +// alongside the orchestrator. toolFunctions is a name-keyed record now.
@@ -186,6 +185,6 @@ synchronously back to the caller:
 
 ---
 
-That's the whole change. Run both stages against the kill switch (see each
-stage's README) to feel the difference: stage 1 loses the run on a tool failure;
-stage 2 retries just the tool and resumes.
+That's the whole change. Run both stages a few times (see each stage's README) to
+feel the difference: the mock charge is deliberately flaky, so stage 1 loses the
+run whenever the tool fails; stage 2 retries just the tool and resumes.

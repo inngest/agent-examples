@@ -26,15 +26,15 @@ Each stage is a standalone [Bun](https://bun.sh) project. See its README for the
 full walkthrough.
 
 ```sh
-# Stage 1: see it break
+# Stage 1: see it break (the mock charge fails at random)
 cd stage-1-fragile && bun install && cp .env.example .env
 bun run dev
-bun run kill-switch:on && bun run agent   # -> 500, run lost
+bun run agent   # run a few times: ~half 500 and the run is lost
 
 # Stage 2: see it heal (needs a second terminal for `bun run inngest`)
 cd stage-2-durable && bun install && cp .env.example .env
 bun run dev
-bun run kill-switch:on && bun run agent   # -> tool retries, then succeeds
+bun run agent   # the charge fails a try or two, the tool retries, then succeeds
 ```
 
 Both stages need an `ANTHROPIC_API_KEY` in `.env` (or any Anthropic-compatible

@@ -2,7 +2,6 @@ import { connect, ConnectionState } from "inngest/connect";
 import { inngest } from "./inngest/client";
 import { runAgentFn } from "./inngest/functions";
 import { toolFunctions } from "./inngest/tool-functions";
-import { isKillSwitchEnabled, setKillSwitch } from "./tools";
 
 const functions = [runAgentFn, ...Object.values(toolFunctions)];
 
@@ -31,16 +30,6 @@ Bun.serve({
           data: { prompt },
         });
         return Response.json({ eventId: ids[0] });
-      },
-    },
-    "/api/kill-switch": {
-      async POST(req) {
-        const { enabled } = await req.json();
-        setKillSwitch(Boolean(enabled));
-        return Response.json({ killSwitchEnabled: isKillSwitchEnabled() });
-      },
-      GET() {
-        return Response.json({ killSwitchEnabled: isKillSwitchEnabled() });
       },
     },
     // Health/readiness probe for containerized environments. Returns 200 only

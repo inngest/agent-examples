@@ -21,26 +21,25 @@ bun run dev
 
 - `POST /api/agent` — `{ "prompt": "..." }` runs the agent loop (`charge_credit_card`
   tool) and returns the final content blocks.
-- `POST /api/kill-switch` — `{ "enabled": true }` flips a live in-memory switch.
-  While enabled, the `charge_credit_card` tool throws instead of succeeding.
-- `GET /api/kill-switch` — current switch state.
 
 ## Demoing the failure live
 
+The mock payment gateway fails at random — each `charge_credit_card` attempt
+throws with probability `CHARGE_FAILURE_RATE` (default `0.5`). Fire a few runs:
+
 ```sh
-bun run kill-switch:on
+bun run agent
 bun run agent
 ```
 
-The tool throws, nothing catches it, and the request comes back `500` — every
-prior tool call and message in that run is gone. Retrying the request re-runs the
-loop **from scratch**, re-charging any card that already succeeded. That's the
-failure mode stage 2 fixes: wrapping each tool call as an Inngest step means a
-retry resumes from the failed step instead of from the beginning.
+Roughly half the runs come back `500`: the tool throws, nothing catches it, and
+every prior tool call and message in that run is gone. Retrying re-runs the loop
+**from scratch**, re-charging any card that already succeeded. That's the failure
+mode stage 2 fixes: wrapping each tool call as an Inngest step means a retry
+resumes from the failed step instead of from the beginning.
 
-```sh
-bun run kill-switch:off
-```
+Set `CHARGE_FAILURE_RATE=1` in `.env` to force the break every time (handy for a
+recording), or `0` to always succeed.
 
 ## Using a different provider
 

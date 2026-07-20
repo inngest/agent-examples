@@ -51,39 +51,32 @@ required; Inngest pushes step invocations to connected workers.
    sync needed. Watch runs in the Cloud dashboard.
 
 There is no `/api/inngest` serve endpoint anymore; the only inbound surface is
-the trigger + kill-switch routes and a `/ready` health probe.
+the trigger route and a `/ready` health probe.
 
 ## Endpoints
 
 - `POST /api/agent` — `{ "prompt": "..." }` fires an `agent/run.requested` event
   and returns `{ "eventId": "..." }`. The run happens in the background — watch it
   in the dashboard.
-- `POST /api/kill-switch` — `{ "enabled": true }` makes `charge_credit_card` throw.
-- `GET /api/kill-switch` — current switch state.
 - `GET /ready` — health/readiness probe; returns 200 when the connect socket is `ACTIVE`.
 
 ## Demoing the self-heal
+
+The mock payment gateway is deliberately flaky: every `charge_credit_card` fails
+its first attempt or two, then goes through. No switch to flip — just fire a run:
 
 ```sh
 bun run agent          # -> {"eventId":"..."}
 ```
 
 In the dashboard you'll see a `run-agent` run and, linked inside it, a
-`tool-charge_credit_card` run. Now break the tool and fire again:
+`tool-charge_credit_card` run that fails once or twice (its own `retries: 5`) and
+then succeeds. `run-agent` never restarts and never re-calls the model — it was
+just parked waiting on the invoked tool. The final output shows the completed
+charge, issued **exactly once**.
 
-```sh
-bun run kill-switch:on
-bun run agent
-```
-
-`tool-charge_credit_card` fails once or twice (its own `retries: 5`), the kill
-switch auto-reverts, then it succeeds. `run-agent` never restarts and never
-re-calls the model — it was just parked waiting on the invoked tool. The final
-output shows the completed charge. Same failure as stage 1, but nothing was lost.
-
-```sh
-bun run kill-switch:off
-```
+The failure is keyed by the charge's idempotency key, so each run heals on its
+own — fire it as many times as you like.
 
 ## The last-mile guarantee: idempotency
 

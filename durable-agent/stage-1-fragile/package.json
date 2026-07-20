@@ -6,10 +6,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
-    "agent": "curl -s -w '\\n' -X POST localhost:${PORT:-3000}/api/agent -d '{\"prompt\": \"Charge my card $42\"}' | jq",
-    "kill-switch:on": "curl -s -w '\\n' -X POST localhost:${PORT:-3000}/api/kill-switch -d '{\"enabled\": true}'",
-    "kill-switch:off": "curl -s -w '\\n' -X POST localhost:${PORT:-3000}/api/kill-switch -d '{\"enabled\": false}'",
-    "kill-switch:status": "curl -s -w '\\n' localhost:${PORT:-3000}/api/kill-switch"
+    "agent": "curl -s -w '\\n' -X POST localhost:${PORT:-3000}/api/agent -d '{\"prompt\": \"Charge my card $42\"}' | jq"
   },
   "license": "ISC",
   "dependencies": {
