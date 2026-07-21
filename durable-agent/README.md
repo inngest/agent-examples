@@ -1,7 +1,7 @@
 # Durable Agent — when your agent can spend money
 
-Companion code for the Inngest blog post
-**[Your agent just learned to spend money](https://www.inngest.com/blog/your-agent-just-learned-to-spend-money)**.
+<!--Companion code for the Inngest blog post
+**[Your agent just learned to spend money](https://www.inngest.com/blog/your-agent-just-learned-to-spend-money)**.-->
 
 An AI agent that calls a `charge_credit_card` tool has a nasty failure mode: if a
 tool throws (or the process dies) mid-run, a naive retry re-runs the whole agent
