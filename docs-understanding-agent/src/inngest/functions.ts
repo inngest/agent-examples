@@ -60,10 +60,8 @@ export const analyzeDocsPreview = inngest.createFunction(
             "claude-sonnet": () =>
               step.run(`sum-claude:${route}`, () => summarize("anthropic/claude-sonnet-4.5", pageText)),
             "gpt-4o": () => step.run(`sum-gpt4o:${route}`, () => summarize("openai/gpt-4o", pageText)),
-            "gemini-flash": () =>
-              step.run(`sum-gemini:${route}`, () => summarize("google/gemini-2.0-flash-001", pageText)),
           },
-          select: experiment.weighted({ "claude-sonnet": 34, "gpt-4o": 33, "gemini-flash": 33 }),
+          select: experiment.weighted({ "claude-sonnet": 50, "gpt-4o": 50}),
         });
 
         const heuristics = await step.run(`heuristics:${route}`, () => heuristicScore(summary));
