@@ -1,12 +1,16 @@
-import { experiment } from "inngest";
+import { experiment, type GroupTools } from "inngest";
 import { config } from "../config";
 import { getGitHub } from "../github/app";
-import { CHECK_RUN_ACTIONS, formatCheckOutput, type PageResult } from "../github/checks";
-import { summarize } from "../lib/openrouter";
+import { CHECK_RUN_ACTIONS, formatCheckOutput, formatPRComment, type ModelResult, type PageResult } from "../github/checks";
+import { summarize, type PageSummary } from "../lib/openrouter";
 import { fetchPageText, filePathToRoute, filterDocsFiles } from "../lib/pages";
 import { heuristicScore, judgeSummary } from "../lib/scoring";
 import { inngest } from "./client";
 import { reviewerFeedbackScorer } from "./scorers";
+
+// `group.experiment()` doesn't export its `experimentRef` return type from
+// the package root, so derive it from the public `GroupTools` type instead.
+type ExperimentRef = Awaited<ReturnType<GroupTools["experiment"]>>["experimentRef"];
 
 export const analyzeDocsPreview = inngest.createFunction(
   {
@@ -48,63 +52,149 @@ export const analyzeDocsPreview = inngest.createFunction(
       return gh.createCheckRun(owner, repo, pr.headSha);
     });
 
+    // heuristics -> judge -> best-effort score writes; shared by both modes.
+    // suffix = `${route}` (sample) or `${route}:${variant}` (compare).
+    // Defined inside the handler so it can close over `step` and `runId`
+    // directly instead of threading typed step tools through as arguments.
+    const judgeAndScore = async (args: {
+      suffix: string;
+      pageText: string;
+      summary: PageSummary;
+      experimentRef: ExperimentRef;
+    }) => {
+      const { suffix, pageText, summary, experimentRef } = args;
+      const heuristics = await step.run(`heuristics:${suffix}`, () => heuristicScore(summary));
+      const judged = await step.run(`judge:${suffix}`, () => judgeSummary(pageText, summary));
+      try {
+        await step.score(`score-heuristics:${suffix}`, { name: "heuristics", value: heuristics });
+        await step.score(`score-judge:${suffix}`, { name: "judge-clarity", value: judged.clarity });
+        // Wrapped in a step so it's memoized: called at function-body level
+        // (with an explicit runId instead) it would re-fire a real network
+        // call on every replay of this loop. Explicit runId keeps the write
+        // run-scoped so it still co-locates with the variant in the
+        // experiment view.
+        await step.run(`score-experiment:${suffix}`, () =>
+          inngest.score.experiment({
+            experiment: experimentRef,
+            name: "judge-clarity",
+            value: judged.clarity,
+            runId,
+          }),
+        );
+      } catch (scoreErr) {
+        // Scoring is best-effort — don't let an exhausted score write blank
+        // out the summary we already recorded for this model/page.
+        console.warn(`score write failed for ${suffix}:`, scoreErr);
+      }
+      return { heuristics, judged };
+    };
+
     const results: PageResult[] = [];
     for (const { path, route } of pages) {
+      let pageText: string;
       try {
-        const pageText = await step.run(`fetch-page:${route}`, () => fetchPageText(previewUrl, route));
+        pageText = await step.run(`fetch-page:${route}`, () => fetchPageText(previewUrl, route));
+      } catch (err) {
+        // A page that fails all retries shouldn't sink the rest of the PR.
+        results.push({ path, route, models: [], error: err instanceof Error ? err.message : String(err) });
+        continue;
+      }
 
-        // Only the selected variant runs; the experiment view compares
-        // variants across pages and runs.
-        const { result: summary, variant, experimentRef } = await group.experiment(`summarize:${route}`, {
-          variants: {
-            "claude-sonnet": () =>
-              step.run(`sum-claude:${route}`, () => summarize("anthropic/claude-sonnet-4.5", pageText)),
-            "gpt-4o": () => step.run(`sum-gpt4o:${route}`, () => summarize("openai/gpt-4o", pageText)),
-          },
-          select: experiment.weighted({ "claude-sonnet": 50, "gpt-4o": 50}),
+      if (config.experimentMode === "compare") {
+        // One `group.experiment` per model, all running in parallel — each
+        // gets its own experimentRef so scores land per-model in the
+        // experiment view, and a per-model try/catch means one bad model
+        // can't reject the whole page.
+        const models: ModelResult[] = await Promise.all(
+          config.models.map(async ({ id, variant }): Promise<ModelResult> => {
+            try {
+              const { result: summary, experimentRef } = await group.experiment(`summarize:${route}:${variant}`, {
+                variants: {
+                  [variant]: () => step.run(`sum:${route}:${variant}`, () => summarize(id, pageText)),
+                },
+                select: experiment.fixed(variant),
+              });
+              const { heuristics, judged } = await judgeAndScore({
+                suffix: `${route}:${variant}`,
+                pageText,
+                summary,
+                experimentRef,
+              });
+              return { variant, summary, judgeClarity: judged.clarity, heuristics };
+            } catch (err) {
+              return {
+                variant,
+                summary: null,
+                judgeClarity: null,
+                heuristics: null,
+                error: err instanceof Error ? err.message : String(err),
+              };
+            }
+          }),
+        );
+        results.push({ path, route, models });
+
+        // Reviewer-feedback rationale (compare mode, defer once,
+        // unattributed): a single PR-level verdict credited to every model's
+        // experimentRef would write identical, perfectly-correlated scores —
+        // zero comparative signal, but it would look like each model
+        // individually earned approval, which is misleading in exactly the
+        // view compare mode is meant to make trustworthy. Deferring once per
+        // page (no experiment ref) keeps the defer/waitForEvent/feedback demo
+        // alive as an honest page-level signal, and avoids N identical parked
+        // runs per page.
+        defer(`reviewer-feedback:${route}`, {
+          function: reviewerFeedbackScorer,
+          data: { sha, owner, repo, route },
         });
-
-        const heuristics = await step.run(`heuristics:${route}`, () => heuristicScore(summary));
-        const judged = await step.run(`judge:${route}`, () => judgeSummary(pageText, summary));
-
-        // A good summary is the valuable output of this loop iteration — push
-        // it now so a scoring failure below can't discard it by falling
-        // through to the outer catch's `summary: null` result.
-        results.push({ path, route, variant, summary, judgeClarity: judged.clarity, heuristics });
-
+      } else {
         try {
-          await step.score(`score-heuristics:${route}`, { name: "heuristics", value: heuristics });
-          await step.score(`score-judge:${route}`, { name: "judge-clarity", value: judged.clarity });
-          // Wrapped in a step so it's memoized: called at function-body level
-          // (with an explicit runId instead) it would re-fire a real network
-          // call on every replay of this loop. Explicit runId keeps the write
-          // run-scoped so it still co-locates with the variant in the
-          // experiment view.
-          await step.run(`score-experiment:${route}`, () =>
-            inngest.score.experiment({ experiment: experimentRef, name: "judge-clarity", value: judged.clarity, runId }),
-          );
+          // Only the selected variant runs; the experiment view compares
+          // variants across pages and runs.
+          const variantThunks: Record<string, () => Promise<PageSummary>> = {};
+          const weights: Record<string, number> = {};
+          for (const { id, variant } of config.models) {
+            variantThunks[variant] = () => step.run(`sum:${route}:${variant}`, () => summarize(id, pageText));
+            weights[variant] = 1; // equal weight across all configured models
+          }
+          const {
+            result: summary,
+            variant,
+            experimentRef,
+          } = await group.experiment(`summarize:${route}`, {
+            variants: variantThunks,
+            select: experiment.weighted(weights),
+          });
+
+          const { heuristics, judged } = await judgeAndScore({ suffix: route, pageText, summary, experimentRef });
+
+          // A good summary is the valuable output of this loop iteration —
+          // push it now so a scoring failure inside judgeAndScore can't
+          // discard it (judgeAndScore already swallows score-write errors
+          // internally, so this only guards the case above where heuristics
+          // or judging itself failed and we never get here).
+          results.push({ path, route, models: [{ variant, summary, judgeClarity: judged.clarity, heuristics }] });
 
           defer(`reviewer-feedback:${route}`, {
             function: reviewerFeedbackScorer,
             data: { sha, owner, repo, route, variant },
             experiment: experimentRef,
           });
-        } catch (scoreErr) {
-          // Scoring is best-effort — don't let an exhausted score write blank
-          // out the summary we already recorded above.
-          console.warn(`score write failed for ${route}:`, scoreErr);
+        } catch (err) {
+          results.push({
+            path,
+            route,
+            models: [
+              {
+                variant: "—",
+                summary: null,
+                judgeClarity: null,
+                heuristics: null,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            ],
+          });
         }
-      } catch (err) {
-        // A page that fails all retries shouldn't sink the rest of the PR.
-        results.push({
-          path,
-          route,
-          variant: "—",
-          summary: null,
-          judgeClarity: null,
-          heuristics: null,
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
     }
 
@@ -129,17 +219,52 @@ export const analyzeDocsPreview = inngest.createFunction(
       }
     });
 
+    try {
+      await step.run("post-pr-comment", async () => {
+        const gh = await getGitHub(installationId, dryRun);
+        await gh.upsertPRComment(owner, repo, pr.number, formatPRComment(previewUrl, results));
+      });
+    } catch (err) {
+      // A flaky comment write shouldn't fail the whole run once retries burn
+      // on GitHub API flakiness — the check run above already carries the
+      // full output.
+      console.warn(`post-pr-comment failed for PR #${pr.number}:`, err);
+    }
+
     return {
       pr: pr.number,
-      pages: results.map(({ route, variant, judgeClarity, heuristics, error }) => ({
+      pages: results.map(({ route, models, error }) => ({
         route,
-        variant,
-        judgeClarity,
-        heuristics,
+        models: models.map(({ variant, judgeClarity, heuristics, error: modelError }) => ({
+          variant,
+          judgeClarity,
+          heuristics,
+          ...(modelError ? { error: modelError } : {}),
+        })),
         ...(error ? { error } : {}),
       })),
     };
   },
 );
 
-export const functions = [analyzeDocsPreview, reviewerFeedbackScorer];
+// Converges the two reviewer-feedback paths (check-run buttons and PR comment
+// replies) onto the same `github/review.feedback` event the deferred scorers
+// above wait on: resolve the PR's current head sha, then re-emit as feedback.
+export const resolveCommentFeedback = inngest.createFunction(
+  { id: "resolve-comment-feedback", triggers: [{ event: "github/review.comment" }] },
+  async ({ event, step }) => {
+    const { owner, repo, prNumber, verdict, reviewer, installationId } = event.data;
+
+    const sha = await step.run("resolve-head-sha", async () => {
+      const gh = await getGitHub(installationId);
+      return gh.getPRHeadSha(owner, repo, prNumber);
+    });
+
+    await step.sendEvent("emit-feedback", {
+      name: "github/review.feedback",
+      data: { owner, repo, sha, verdict, reviewer },
+    });
+  },
+);
+
+export const functions = [analyzeDocsPreview, reviewerFeedbackScorer, resolveCommentFeedback];

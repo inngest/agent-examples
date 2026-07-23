@@ -1,7 +1,7 @@
 import { App } from "octokit";
 import { config } from "../config";
 import type { ChangedFile } from "../lib/pages";
-import type { CheckRunOutput } from "./checks";
+import { COMMENT_MARKER, type CheckRunOutput } from "./checks";
 
 export type PullRequestRef = { number: number; title: string; headSha: string };
 
@@ -19,6 +19,8 @@ export type GitHubClient = {
     output: CheckRunOutput,
     actions: { label: string; identifier: string; description: string }[],
   ): Promise<void>;
+  upsertPRComment(owner: string, repo: string, prNumber: number, body: string): Promise<void>;
+  getPRHeadSha(owner: string, repo: string, prNumber: number): Promise<string>;
 };
 
 export type DryRunData = { files?: string[] };
@@ -79,6 +81,26 @@ const realClient = async (installationId: number): Promise<GitHubClient> => {
         actions,
       });
     },
+    async upsertPRComment(owner, repo, prNumber, body) {
+      // Sticky comment: find our marker among existing comments and update it
+      // in place rather than posting a new one on every deploy.
+      const comments = await octokit.paginate(octokit.rest.issues.listComments, {
+        owner,
+        repo,
+        issue_number: prNumber,
+        per_page: 100,
+      });
+      const existing = comments.find((c) => c.body?.includes(COMMENT_MARKER));
+      if (existing) {
+        await octokit.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+      } else {
+        await octokit.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+      }
+    },
+    async getPRHeadSha(owner, repo, prNumber) {
+      const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+      return data.head.sha;
+    },
   };
 };
 
@@ -97,6 +119,15 @@ const dryRunClient = (dryRun: DryRunData): GitHubClient => ({
     console.log(`[dry-run] complete check run #${checkRunId}: ${output.title}`);
     console.log(output.summary);
     console.log(output.text);
+  },
+  async upsertPRComment(_owner, _repo, _prNumber, body) {
+    console.log(`[dry-run] sticky PR comment:`);
+    console.log(body);
+  },
+  async getPRHeadSha() {
+    // The demo exercises comment feedback via fake-feedback.ts instead of a
+    // real sha match, so a fixed fake sha is fine here.
+    return "0".repeat(40);
   },
 });
 

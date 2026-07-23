@@ -7,6 +7,16 @@ import { inngest } from "../src/inngest/client";
 
 const sha = process.argv[2] ?? "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
 const previewUrl = process.env.DEMO_PREVIEW_URL ?? "https://www.inngest.com";
+// Override the synthetic changed-file list to exercise a real file on the
+// live preview, e.g. DEMO_FILES=content/blog/some-post.md.
+const files = process.env.DEMO_FILES
+  ? process.env.DEMO_FILES.split(",")
+      .map((f) => f.trim())
+      .filter(Boolean)
+  : [
+      "docs/getting-started/express-quick-start.mdx",
+      "docs/features/inngest-functions/steps-workflows/step-experiments.mdx",
+    ];
 
 const result = await inngest.send({
   id: `preview-${sha}-demo`,
@@ -19,12 +29,7 @@ const result = await inngest.send({
     environment: "Preview",
     installationId: 0,
     // Consumed by the DRY_RUN_GITHUB stub as the PR's changed files.
-    dryRun: {
-      files: [
-        "docs/getting-started/express-quick-start.mdx",
-        "docs/features/inngest-functions/steps-workflows/step-experiments.mdx",
-      ],
-    },
+    dryRun: { files },
   },
 });
 

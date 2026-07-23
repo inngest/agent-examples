@@ -4,8 +4,12 @@ import { inngest } from "./client";
 
 // One scorer run is deferred per analyzed page. All of them park on the same
 // PR-level feedback event (matched by sha), so a single reviewer click on the
-// check run resolves every page's scorer — each attributing the verdict to its
-// own page's experiment variant via the `experiment` ref passed to defer().
+// check run — or a `/approve` / `/needs-work` PR comment reply — resolves
+// every page's scorer. Sample mode attributes the verdict to the sampled
+// variant via the `experiment` ref passed to defer(); compare mode defers
+// without an experiment ref (a single PR-level verdict can't discriminate
+// between models run side-by-side on the same page), so `variant` is only
+// present in sample mode.
 export const reviewerFeedbackScorer = createScorer(
   inngest,
   {
@@ -15,7 +19,7 @@ export const reviewerFeedbackScorer = createScorer(
       owner: z.string(),
       repo: z.string(),
       route: z.string(),
-      variant: z.string(),
+      variant: z.string().optional(),
     }),
   },
   async ({ event, step }) => {

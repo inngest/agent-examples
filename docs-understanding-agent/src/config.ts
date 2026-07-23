@@ -3,6 +3,37 @@ const decodePrivateKey = (raw: string): string => {
   return Buffer.from(raw, "base64").toString("utf8");
 };
 
+export type ModelSpec = { id: string; variant: string };
+
+// "anthropic/claude-sonnet-4.5" -> variant "claude-sonnet-4.5". Two ids that
+// share a suffix (rare, but possible with custom OpenRouter routes) fall back
+// to the full id with slashes turned into dashes so variants stay unique.
+export function parseModels(raw: string): ModelSpec[] {
+  const ids = raw
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (ids.length === 0) throw new Error("MODELS must contain at least one model id");
+
+  const seen = new Set<string>();
+  return ids.map((id) => {
+    let variant = id.split("/").pop() || id;
+    if (seen.has(variant)) variant = id.replace(/\//g, "-");
+    seen.add(variant);
+    return { id, variant };
+  });
+}
+
+export type ExperimentMode = "sample" | "compare";
+
+export function parseMode(raw: string | undefined): ExperimentMode {
+  const mode = raw ?? "sample";
+  if (mode !== "sample" && mode !== "compare") {
+    throw new Error(`EXPERIMENT_MODE must be "sample" or "compare", got "${mode}"`);
+  }
+  return mode;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
 
@@ -13,7 +44,12 @@ export const config = {
 
   // Fixed model for the LLM-judge scoring pass (kept out of the experiment so
   // judge quality doesn't vary with the variant under test).
-  judgeModel: process.env.JUDGE_MODEL ?? "google/gemini-2.0-flash-001",
+  judgeModel: process.env.JUDGE_MODEL ?? "google/gemini-3.5-flash",
+
+  // sample: one model per page, weighted A/B (today's behavior). compare: all
+  // models on every page, side-by-side.
+  experimentMode: parseMode(process.env.EXPERIMENT_MODE),
+  models: parseModels(process.env.MODELS ?? "anthropic/claude-sonnet-4.5,openai/gpt-4o"),
 
   docsPathPrefixes: (process.env.DOCS_PATH_PREFIXES ?? "docs/,blog/,content/")
     .split(",")

@@ -11,7 +11,7 @@ It demos four Inngest features in one pipeline:
 | [Express serve](https://www.inngest.com/docs/getting-started/express-quick-start) | `src/index.ts` |
 | [Step experiments](https://www.inngest.com/docs/features/inngest-functions/steps-workflows/step-experiments) — compare models via OpenRouter | `src/inngest/functions.ts` |
 | [Scoring](https://www.inngest.com/docs/features/inngest-functions/steps-workflows/scoring) — heuristics + LLM judge | `src/lib/scoring.ts` |
-| [Deferred scoring](https://www.inngest.com/docs/features/inngest-functions/steps-workflows/deferred-scoring) — reviewer verdict via check-run buttons | `src/inngest/scorers.ts` |
+| [Deferred scoring](https://www.inngest.com/docs/features/inngest-functions/steps-workflows/deferred-scoring) — reviewer verdict via check-run buttons or PR comment reply | `src/inngest/scorers.ts` |
 
 ## Flow
 
@@ -29,24 +29,40 @@ PR opened ──▶ Vercel preview deploy ──▶ GitHub deployment_status web
                           │  4. per page:                          │
                           │     • fetch preview page               │
                           │     • group.experiment: summarize with │
-                          │       one of 3 models (OpenRouter)     │
+                          │       one model (sample) or all models │
+                          │       in parallel (compare)            │
                           │     • step.score: heuristics + judge   │
                           │     • defer(reviewer-feedback scorer)  │
-                          │  5. finalize check run + buttons       │
+                          │  5. finalize check run + PR comment    │
                           └───────────────────┬────────────────────┘
                                               │
-              reviewer clicks "Approve"/"Needs work" on the check run
+       reviewer clicks "Approve"/"Needs work" on the check run, or replies
+                  `/approve` / `/needs-work` on the PR
                                               │
-                     check_run.requested_action webhook
+      check_run.requested_action webhook, or issue_comment webhook (via
+                     resolve-comment-feedback)
                                               │
                      inngest.send("github/review.feedback")
                                               │
               deferred scorers resolve → score attributed to variant
 ```
 
-Note on experiments: `group.experiment()` runs **one** selected variant per page.
-Cross-model comparison shows up in the Inngest experiment view as variants accumulate
-across pages and runs — it is not a side-by-side per page.
+## Experiment modes
+
+`EXPERIMENT_MODE` picks how `MODELS` is used, default `sample`:
+
+- **sample** — `group.experiment` + `experiment.weighted` selects **one** model per
+  page (today's original behavior). Cross-model comparison accumulates statistically
+  across pages and runs in the Inngest experiment view; you never see two models'
+  takes on the same page side-by-side.
+- **compare** — one `group.experiment` per model, each with `experiment.fixed`, run
+  in parallel on **every** page. Scores still land per-model in the experiment view,
+  and the check run / PR comment additionally get a side-by-side table with the
+  highest-judge model marked `(winner)`.
+
+Reviewer feedback is only variant-attributed in sample mode: a single PR-level
+`/approve` can't tell you which of several side-by-side models was actually right, so
+compare mode's deferred scorer records an honest page-level verdict instead.
 
 ## Quick demo (no GitHub / Vercel needed)
 
@@ -69,18 +85,28 @@ bun run feedback                # later: simulate the reviewer clicking Approve
 bun run feedback needs_work     # ...or rejecting
 ```
 
-In the Dev Server UI watch the `analyze-docs-preview` run: the `summarize:*`
-experiment picks a variant, `heuristics`/`judge-clarity` scores land on the run, and
-one `reviewer-feedback` run per page parks on `wait-for-review` until the feedback
-event arrives (timeout 7d).
+Try compare mode instead by starting terminal 2 with `EXPERIMENT_MODE=compare bun run
+demo`. `MODELS` overrides which OpenRouter models run (default
+`anthropic/claude-sonnet-4.5,openai/gpt-4o`); `DEMO_FILES` overrides `bun run
+trigger`'s synthetic changed-file list (comma-separated paths) so you can point the
+demo at a real page on the preview site.
+
+In the Dev Server UI watch the `analyze-docs-preview` run: in sample mode, the
+`summarize:*` experiment picks a variant; in compare mode, one `summarize:*`
+experiment per model runs in parallel. Either way `heuristics`/`judge-clarity` scores
+land on the run, and one `reviewer-feedback` run per page parks on `wait-for-review`
+until the feedback event arrives (timeout 7d) — variant-attributed in sample mode,
+unattributed in compare mode.
 
 ## Real setup
 
 1. **Create a GitHub App** (Settings → Developer settings → GitHub Apps):
-   - Permissions: Checks **read/write**, Pull requests **read**, Deployments **read**, Contents **read**.
-   - Subscribe to events: **Deployment status**, **Check run**.
+   - Permissions: Checks **read/write**, Pull requests **read**, Issues **read/write**
+     (posts and updates the sticky PR comment), Deployments **read**, Contents **read**.
+   - Subscribe to events: **Deployment status**, **Check run**, **Issue comment**
+     (reviewer replies of `/approve` / `/needs-work`).
    - Webhook URL: your server's `/api/github/webhooks` (locally: a `smee.io` channel, or
-     `gh webhook forward --events deployment_status,check_run --repo <owner>/<repo> --url http://localhost:3000/api/github/webhooks`).
+     `gh webhook forward --events deployment_status,check_run,issue_comment --repo <owner>/<repo> --url http://localhost:3000/api/github/webhooks`).
    - Set a webhook secret; generate a private key.
 2. Install the app on the docs repo (which must be connected to Vercel for preview deploys).
 3. Fill `.env`: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (PEM or base64), `GITHUB_WEBHOOK_SECRET`,
@@ -91,6 +117,23 @@ event arrives (timeout 7d).
 
 File→route mapping is convention-based: `docs/foo/bar.mdx` → `/docs/foo/bar`
 (`index` maps to the directory). Tune with `DOCS_PATH_PREFIXES` / `DOCS_CONTENT_ROOT`.
+
+## Feedback
+
+There are two equivalent ways for a reviewer to record whether the LLM's understanding
+matched their intent — both resolve the same deferred `reviewer-feedback` scorer(s) via
+`github/review.feedback`:
+
+- **Check-run buttons** — click **Approve** / **Needs work** on the check run
+  (`check_run.requested_action` webhook).
+- **PR comment reply** — reply `/approve` or `/needs-work` on the PR (`issue_comment`
+  webhook). The agent posts/updates a sticky comment with the same summary table on
+  every deploy; comment replies go through `resolve-comment-feedback`, which resolves
+  the PR's current head sha and re-emits `github/review.feedback` so it converges with
+  the check-run path.
+
+The comment path requires the GitHub App's Issues **read/write** permission and the
+**Issue comment** webhook subscription (see Real setup above).
 
 ## Notes
 

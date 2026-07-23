@@ -70,6 +70,41 @@ export const githubWebhooks = Router().post("/", async (req: Request, res: Respo
           reviewer: payload.sender?.login,
         },
       });
+    } else if (
+      eventName === "issue_comment" &&
+      payload.action === "created" &&
+      payload.issue?.pull_request && // comments fire on issues too; only PRs count
+      payload.sender?.type !== "Bot" // ignore our own sticky comment and other bots
+    ) {
+      const firstLine = String(payload.comment?.body ?? "")
+        .trim()
+        .split("\n")[0]
+        ?.trim();
+      const verdict =
+        firstLine === "/approve" ? "approve" : firstLine === "/needs-work" || firstLine === "/needs_work" ? "needs_work" : null;
+
+      if (verdict) {
+        if (!payload.installation?.id) {
+          console.warn(
+            `github webhook: issue_comment for ${payload.repository?.full_name ?? "unknown repo"} ` +
+              `has no installation id, skipping`,
+          );
+          return res.sendStatus(200);
+        }
+        await inngest.send({
+          // Redelivered/edited-comment webhooks for the same comment dedupe on this id.
+          id: `comment-feedback-${payload.comment.id}`,
+          name: "github/review.comment",
+          data: {
+            owner: payload.repository.owner.login,
+            repo: payload.repository.name,
+            prNumber: payload.issue.number,
+            verdict,
+            reviewer: payload.sender.login,
+            installationId: payload.installation.id,
+          },
+        });
+      }
     }
   } catch (err) {
     // inngest.send() failed — return 500 so GitHub redelivers the webhook.
