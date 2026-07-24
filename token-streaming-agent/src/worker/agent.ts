@@ -62,8 +62,10 @@ async function streamTurn(
       timer = null;
       // Fire-and-forget, non-durable: this is a live UI nicety, not part of
       // the durable record. `turn.completed` (below, durable) is the
-      // authoritative text the UI falls back to if any deltas are lost.
-      void inngest.realtime.publish(ch.tokens, { turn, seq: seq++, delta });
+      // authoritative text the UI falls back to if any deltas are lost. The
+      // rejection is swallowed because a dropped batch is recoverable, but
+      // an unhandled rejection is fatal under Node's default settings.
+      void inngest.realtime.publish(ch.tokens, { turn, seq: seq++, delta }).catch(() => {});
     };
 
     const stream = client.messages.stream({
@@ -79,10 +81,15 @@ async function streamTurn(
       timer ??= setTimeout(flush, BATCH_MS);
     });
 
-    const final = await stream.finalMessage();
-    if (timer) clearTimeout(timer);
-    flush();
-    return final;
+    try {
+      return await stream.finalMessage();
+    } finally {
+      // Always cancel a pending batch so no flush fires after the step
+      // settles — on failure, a stray timer would otherwise publish stale
+      // tokens into the retry's fresh stream.
+      if (timer) clearTimeout(timer);
+      flush();
+    }
   });
 
   // step.run JSON-round-trips the result, but it's really this shape.
@@ -159,8 +166,9 @@ export async function runChatAgent(step: Step, sessionId: string, history: ChatM
     const error = err instanceof Error ? err.message : String(err);
     // Client-level, non-durable publish: the function is about to fail and
     // rethrow, so there's nothing left to memoize against — just get the
-    // notice out before the run ends.
-    await inngest.realtime.publish(ch.status, { type: "run.failed", error });
+    // notice out before the run ends. This is best-effort and must never
+    // mask the real failure, which is rethrown on the next line regardless.
+    await inngest.realtime.publish(ch.status, { type: "run.failed", error }).catch(() => {});
     throw err;
   }
 }

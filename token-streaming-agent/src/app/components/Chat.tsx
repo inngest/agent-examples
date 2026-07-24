@@ -221,11 +221,20 @@ export default function Chat() {
     // know about traces, so strip them back off before sending.
     const wireMessages: ChatMessage[] = nextTranscript.map(({ role, content }) => ({ role, content }));
 
-    await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, messages: wireMessages }),
-    });
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, messages: wireMessages }),
+      });
+      if (!res.ok) throw new Error(`chat request failed: ${res.status}`);
+    } catch (err) {
+      // The run never started, so no realtime message will ever unwind the
+      // in-flight state — clear it here and surface the failure instead of
+      // leaving the composer disabled forever.
+      setErrorBanner({ message: err instanceof Error ? err.message : String(err), trace: [] });
+      setRunning(false);
+    }
   }
 
   return (

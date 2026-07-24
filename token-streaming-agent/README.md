@@ -129,6 +129,15 @@ of the browser being the only copy of history — refresh the tab and it's
 gone. A real app would likely persist history (e.g. keyed by `sessionId`) and
 send only the new message.
 
+**Live-only subscription window.** The browser only subscribes while a run is
+in flight (`enabled: running` in `Chat.tsx`), and Inngest Realtime delivers
+live messages only — there's no backfill for a subscriber that joins late. A
+run that fails or completes within the subscription-setup window (token mint
+plus socket join) can therefore drop its terminal `run.completed`/`run.failed`
+event, leaving the UI waiting. Rare in practice (model latency dwarfs the
+setup window), and acceptable for an example — a real app would arm a
+client-side timeout or poll run status as a safety net.
+
 ## Using a different provider
 
 By default the worker talks to the real Anthropic API with `claude-opus-4-8`.
