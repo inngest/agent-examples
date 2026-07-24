@@ -1,3 +1,6 @@
 node_modules
 .env
 .claude/
+*.pem
+.DS_Store
+token-streaming-agent/inngest
