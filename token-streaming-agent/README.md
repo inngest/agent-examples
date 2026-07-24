@@ -92,8 +92,6 @@ in the Dev Server show `llm-turn-0`, two `tool-*` steps, and `llm-turn-1`.
 Send a follow-up afterward (e.g. "and London?") to confirm the full
 conversation history round-trips correctly.
 
-![video](https://cdn.inngest.com/docs/token-streaming/hls/master.m3u8)
-
 ## Design notes
 
 **Channel/topic design.** One channel per session, `chat:{sessionId}`
