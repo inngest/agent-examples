@@ -219,6 +219,45 @@ body {
   border: 1px solid var(--error);
 }
 
+/* Context-window occupancy meter. The fill carries severity (accent, then
+   error past 80%); the unfilled track is a lighter step of the same color so
+   the state reads across the whole bar, not just the filled part. The label
+   stays in muted ink — text never wears the fill color. */
+.context-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  --meter-fill: var(--accent);
+}
+
+.context-meter-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-meter-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--meter-fill) 18%, var(--bg));
+}
+
+.context-meter-track.high {
+  --meter-fill: var(--error);
+}
+
+.context-meter-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--meter-fill);
+  transition: width 300ms ease;
+}
+
 .composer {
   display: flex;
   gap: 8px;

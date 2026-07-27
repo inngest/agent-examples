@@ -14,6 +14,15 @@ export async function POST(req: Request) {
   const { ids } = await inngest.send({
     name: "chat/message.sent",
     data: { sessionId, messages },
+    // Session context (Inngest "Sessions"): groups every run of one
+    // conversation under AI > Sessions in the dashboard — run counts,
+    // failure rates, and per-conversation drill-down for eval debugging.
+    // Purely metadata; doesn't change which functions execute.
+    meta: {
+      sessions: {
+        conversation_id: sessionId,
+      },
+    },
   });
 
   return Response.json({ eventId: ids[0] });
