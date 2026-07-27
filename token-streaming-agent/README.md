@@ -84,11 +84,13 @@ the Next.js app never calls the model directly.
 
 ## Demo prompt
 
-> What's the weather in Tokyo, and what's 87\*23?
+> What's the weather in Tokyo, in Fahrenheit?
 
-This exercises both tools (`get_weather`, `calculate`) in one run: watch the
+This exercises two tools (`get_weather`, then `convert_to_fahrenheit` on its
+Celsius reading) in one run: watch the
 tool-called/tool-result lines appear between streamed turns, and the run view
-in the Dev Server show `llm-turn-0`, two `tool-*` steps, and `llm-turn-1`.
+in the Dev Server show `llm-turn-0` and `llm-turn-1` each followed by a
+`tool-*` step, then a final `llm-turn-2`.
 Send a follow-up afterward (e.g. "and London?") to confirm the full
 conversation history round-trips correctly.
 
@@ -124,10 +126,18 @@ transport level — the UI's grouping logic handles it.
 **Client-owned history trade-off.** There's no server-side session store:
 the browser holds the full transcript and POSTs it in full on every
 `/api/chat` call. That keeps the server completely stateless (any worker
-instance can pick up any request) and keeps this example small, at the cost
-of the browser being the only copy of history — refresh the tab and it's
-gone. A real app would likely persist history (e.g. keyed by `sessionId`) and
-send only the new message.
+instance can pick up any request) and keeps this example small. The browser
+copy is made reload-safe by two client-side pieces: the session id lives in
+the URL (`?session=<id>`) and the transcript is mirrored to `localStorage`
+(`chat:<id>`, pruned after 7 days), so refreshing — or recovering from a
+timed-out run — picks the conversation back up on the same device. If a run
+was in flight when the page went away, the UI re-subscribes to the session's
+realtime channel and waits up to 30s for the run's durable statuses before
+giving up. Events are also tagged with Inngest session context
+(`meta.sessions.conversation_id`), which groups every run of one conversation
+under **AI → Sessions** in the Cloud dashboard for eval debugging. A real app
+wanting cross-device resume would persist history server-side and send only
+the new message.
 
 **Live-only subscription window.** The browser only subscribes while a run is
 in flight (`enabled: running` in `Chat.tsx`), and Inngest Realtime delivers
@@ -140,6 +150,20 @@ client-side timeout or poll run status as a safety net.
 
 ## Using a different provider
 
-By default the worker talks to the real Anthropic API with `claude-opus-4-8`.
-Set `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` to point it at any other
-Anthropic-compatible endpoint instead — no code changes needed.
+By default the worker talks to the real Anthropic API. Set `ANTHROPIC_BASE_URL`
+to point it at any other Anthropic-compatible endpoint instead — no code
+changes needed. Override the model(s) it uses via `MODEL_HAIKU`, `MODEL_OPUS`,
+and `JUDGE_MODEL` (see below).
+
+## Model experiment & scoring
+
+`chat-function.ts` runs every session through `group.experiment("chat-model",
+…)`, bucketing it 50/50 into Haiku (`MODEL_HAIKU`) vs Opus (`MODEL_OPUS`) via
+`experiment.bucket(sessionId, …)` — one conversation always sticks with the
+model it started with. After each run, the response is scored for
+conciseness and helpfulness (an LLM judge, `JUDGE_MODEL`) and tool efficiency
+(deterministic: unique tool calls / total calls, no model needed). Each score
+is attached to the selected variant with `inngest.score.experiment(...)`, so
+the Inngest dashboard can compare Haiku vs Opus on these metrics across runs.
+Scoring is best-effort and never fails the chat run — the reply is already
+streamed to the browser by the time scoring happens.

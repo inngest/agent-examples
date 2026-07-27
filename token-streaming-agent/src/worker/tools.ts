@@ -14,15 +14,37 @@ export const toolDefinitions: Anthropic.Tool[] = [
     },
   },
   {
-    name: "calculate",
+    name: "convert_to_celsius",
     description:
-      "Evaluate a basic arithmetic expression (+, -, *, /, parentheses, decimals). Call this for any calculation the user asks for instead of doing the arithmetic yourself. No variables or functions.",
+      "Convert a temperature from Fahrenheit to Celsius. Call this whenever the user asks for a temperature in Celsius that you only have in Fahrenheit, instead of doing the conversion yourself.",
     input_schema: {
       type: "object",
       properties: {
-        expression: { type: "string", description: "e.g. '87 * 23' or '(4 + 5) / 3'" },
+        fahrenheit: { type: "number", description: "Temperature in degrees Fahrenheit, e.g. 72" },
+        location: {
+          type: "string",
+          description:
+            "Where or what this temperature is for, e.g. 'Tokyo'. Always include it when known, so separate conversions that happen to share a value stay distinguishable.",
+        },
       },
-      required: ["expression"],
+      required: ["fahrenheit"],
+    },
+  },
+  {
+    name: "convert_to_fahrenheit",
+    description:
+      "Convert a temperature from Celsius to Fahrenheit. Call this whenever the user asks for a temperature in Fahrenheit that you only have in Celsius (get_weather reports Celsius), instead of doing the conversion yourself.",
+    input_schema: {
+      type: "object",
+      properties: {
+        celsius: { type: "number", description: "Temperature in degrees Celsius, e.g. 22" },
+        location: {
+          type: "string",
+          description:
+            "Where or what this temperature is for, e.g. 'Tokyo'. Always include it when known, so separate conversions that happen to share a value stay distinguishable.",
+        },
+      },
+      required: ["celsius"],
     },
   },
   {
@@ -66,110 +88,39 @@ function getWeather(city: string): string {
   return JSON.stringify({ city, ...reading, unit: "celsius" });
 }
 
-// A tiny recursive-descent parser for `+ - * / ( )` over numbers — deliberately
-// not `eval`/`Function` on the raw string, so the tool can't be used to run
-// arbitrary JS even if a model were coerced into passing something malicious.
-function calculate(expression: string): string {
-  // Reject anything outside digits, whitespace, and the arithmetic operators
-  // up front — belt-and-suspenders alongside the parser only ever consuming
-  // known tokens.
-  if (!/^[0-9+\-*/(). \t]*$/.test(expression)) {
-    throw new Error(`Invalid characters in expression: ${expression}`);
-  }
+// Rounded to 1 decimal place — enough precision for weather-style readings
+// without the float noise of e.g. 22.222222222222221.
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
 
-  let pos = 0;
-
-  function peek(): string | undefined {
-    return expression[pos];
+function requireFiniteNumber(value: unknown, field: string): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error(`${field} must be a finite number, got: ${String(value)}`);
   }
+  return n;
+}
 
-  function skipSpace() {
-    while (pos < expression.length && /\s/.test(expression[pos]!)) pos++;
-  }
+// `location` is echoed back untouched: it disambiguates conversions that share
+// a value (so the tool-efficiency scorer doesn't flag them as duplicate calls)
+// and keeps the result self-describing in traces.
+function convertToCelsius(fahrenheit: unknown, location?: string): string {
+  const f = requireFiniteNumber(fahrenheit, "fahrenheit");
+  return JSON.stringify({
+    ...(location ? { location } : {}),
+    fahrenheit: f,
+    celsius: round1(((f - 32) * 5) / 9),
+  });
+}
 
-  function parseNumber(): number {
-    skipSpace();
-    const start = pos;
-    if (peek() === "+" || peek() === "-") pos++;
-    let sawDigit = false;
-    while (pos < expression.length && /[0-9]/.test(expression[pos]!)) {
-      pos++;
-      sawDigit = true;
-    }
-    if (peek() === ".") {
-      pos++;
-      while (pos < expression.length && /[0-9]/.test(expression[pos]!)) {
-        pos++;
-        sawDigit = true;
-      }
-    }
-    if (!sawDigit) throw new Error(`Expected a number at position ${start}`);
-    return Number(expression.slice(start, pos));
-  }
-
-  function parseFactor(): number {
-    skipSpace();
-    if (peek() === "(") {
-      pos++;
-      const value = parseExpr();
-      skipSpace();
-      if (peek() !== ")") throw new Error("Expected closing ')'");
-      pos++;
-      return value;
-    }
-    if (peek() === "-") {
-      pos++;
-      return -parseFactor();
-    }
-    if (peek() === "+") {
-      pos++;
-      return parseFactor();
-    }
-    return parseNumber();
-  }
-
-  function parseTerm(): number {
-    let value = parseFactor();
-    while (true) {
-      skipSpace();
-      const op = peek();
-      if (op === "*" || op === "/") {
-        pos++;
-        const rhs = parseFactor();
-        if (op === "*") value *= rhs;
-        else {
-          if (rhs === 0) throw new Error("Division by zero");
-          value /= rhs;
-        }
-      } else {
-        break;
-      }
-    }
-    return value;
-  }
-
-  function parseExpr(): number {
-    let value = parseTerm();
-    while (true) {
-      skipSpace();
-      const op = peek();
-      if (op === "+" || op === "-") {
-        pos++;
-        const rhs = parseTerm();
-        value = op === "+" ? value + rhs : value - rhs;
-      } else {
-        break;
-      }
-    }
-    return value;
-  }
-
-  const result = parseExpr();
-  skipSpace();
-  if (pos !== expression.length) {
-    throw new Error(`Unexpected trailing input at position ${pos}: "${expression.slice(pos)}"`);
-  }
-  return JSON.stringify({ expression, result });
+function convertToFahrenheit(celsius: unknown, location?: string): string {
+  const c = requireFiniteNumber(celsius, "celsius");
+  return JSON.stringify({
+    ...(location ? { location } : {}),
+    celsius: c,
+    fahrenheit: round1((c * 9) / 5 + 32),
+  });
 }
 
 function getCurrentTime(timezone?: string): string {
@@ -187,7 +138,10 @@ function getCurrentTime(timezone?: string): string {
 // a hardcoded switch, so agent.ts stays generic over whatever's declared above.
 const toolHandlers: Record<string, (input: any) => string> = {
   get_weather: (input) => getWeather(String(input.city ?? "")),
-  calculate: (input) => calculate(String(input.expression ?? "")),
+  convert_to_celsius: (input) =>
+    convertToCelsius(input?.fahrenheit, input?.location ? String(input.location) : undefined),
+  convert_to_fahrenheit: (input) =>
+    convertToFahrenheit(input?.celsius, input?.location ? String(input.location) : undefined),
   get_current_time: (input) => getCurrentTime(input?.timezone ? String(input.timezone) : undefined),
 };
 

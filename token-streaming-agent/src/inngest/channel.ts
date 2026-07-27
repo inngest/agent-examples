@@ -1,4 +1,5 @@
 import { channel, staticSchema } from "inngest/realtime";
+import type Anthropic from "@anthropic-ai/sdk";
 
 // Shared contract between the worker (publisher) and the browser (subscriber).
 // Both sides import this file, so the topic shapes can never drift apart.
@@ -9,14 +10,24 @@ import { channel, staticSchema } from "inngest/realtime";
 // turn's step was retried, so its buffer should be reset and re-built).
 export type TokenMessage = { turn: number; seq: number; delta: string };
 
+// Snapshot of context-window occupancy after one model turn. `inputTokens`
+// covers the system prompt, tools, and full history; adding `outputTokens`
+// gives what the conversation occupies right now. `contextWindow` comes from
+// the worker (it knows which model ran) so the UI needs no model knowledge.
+export type ContextUsage = { inputTokens: number; outputTokens: number; contextWindow: number };
+
 // Lifecycle/status events, published durably (`step.realtime.publish`) so
 // they survive worker restarts and are never duplicated or dropped.
 export type StatusMessage =
   | { type: "run.started" }
   | { type: "tool.called"; turn: number; name: string; input: unknown }
   | { type: "tool.result"; turn: number; name: string; output: string }
-  | { type: "turn.completed"; turn: number; text: string }
-  | { type: "run.completed"; text: string }
+  | { type: "turn.completed"; turn: number; text: string; usage: ContextUsage }
+  // `newMessages` are the exact API messages the run appended (assistant
+  // turns with tool_use blocks + user tool_result messages), which the
+  // client stores and replays on the next request so the model keeps tool
+  // context across messages instead of just the plain-text transcript.
+  | { type: "run.completed"; text: string; newMessages: ChatMessage[] }
   | { type: "run.failed"; error: string };
 
 // One channel per chat session, with two topics: high-frequency token deltas
@@ -32,5 +43,9 @@ export const chatChannel = channel({
 
 // Client-owned chat history shape (see api/chat/route.ts) — this app has no
 // server-side session store, so the browser sends the full transcript on
-// every request.
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+// every request. `content` is widened to full Anthropic content (rather than
+// just `string`) so a stored assistant turn can carry its tool_use blocks and
+// a stored tool-result turn can carry its tool_result blocks — otherwise a
+// follow-up request would replay history with all tool context erased. The
+// import is type-only so the client bundle doesn't pull in the SDK runtime.
+export type ChatMessage = { role: "user" | "assistant"; content: string | Anthropic.MessageParam["content"] };
