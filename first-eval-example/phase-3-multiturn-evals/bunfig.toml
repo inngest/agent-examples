@@ -1,0 +1,4 @@
+# Preload OpenTelemetry auto-instrumentation before app code so the openai SDK
+# is patched to emit gen_ai.* spans. Inngest's SDK extracts these as AI
+# metadata on the run (the docs' `node --import @inngest/otel/node` equivalent).
+preload = ["@inngest/otel/node"]

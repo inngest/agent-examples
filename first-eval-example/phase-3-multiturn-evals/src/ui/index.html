@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Support ticket triage — rate the replies</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      :root {
+        --bg: #121212;
+        --bg-deep: #020202;
+        --surface: #242424;
+        --border: #353535;
+        --text: #E2E2E2;
+        --text-muted: #7C7C7C;
+        --accent: #027A48;
+        --accent-hi: #66BD8B;
+        --running: #52B2FD;
+        --error: #F54A3F;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        /* Full-viewport height so the gradient background layer spans the
+           screen instead of tiling at the height of the page content. */
+        min-height: 100vh;
+        color: var(--text);
+        font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background-color: var(--bg);
+        background-image:
+          radial-gradient(circle, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+          linear-gradient(to bottom, var(--bg-deep), var(--bg) 400px);
+        background-size: 24px 24px, 100% 100%;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px 16px 110px;
+      }
+      header.app-header {
+        margin: 8px 0 24px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .eyebrow {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+      .app-title {
+        font-family: "Inter", sans-serif;
+        font-weight: 600;
+        font-size: 18px;
+        color: var(--text);
+      }
+      .turn {
+        margin-bottom: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .bubble {
+        padding: 10px 14px;
+        border-radius: 8px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        max-width: 80%;
+      }
+      .user .bubble {
+        align-self: flex-end;
+        margin-left: auto;
+        background: var(--accent);
+        color: #fff;
+        border-bottom-right-radius: 2px;
+      }
+      .assistant .bubble {
+        align-self: flex-start;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-bottom-left-radius: 2px;
+      }
+      .bubble.error {
+        background: var(--surface);
+        border: 1px solid color-mix(in srgb, var(--error) 55%, transparent);
+        color: #F5A9A3;
+      }
+      .bubble .md {
+        white-space: normal;
+      }
+      .md > :first-child {
+        margin-top: 0;
+      }
+      .md > :last-child {
+        margin-bottom: 0;
+      }
+      .md p,
+      .md ul,
+      .md ol {
+        margin: 0.5em 0;
+      }
+      .md ul,
+      .md ol {
+        padding-left: 1.25em;
+      }
+      .md h1,
+      .md h2,
+      .md h3,
+      .md h4,
+      .md h5,
+      .md h6 {
+        font-family: "Inter", sans-serif;
+        font-weight: 600;
+        margin: 0.75em 0 0.35em;
+      }
+      .md h1 {
+        font-size: 1.15em;
+      }
+      .md h2 {
+        font-size: 1.08em;
+      }
+      .md h3,
+      .md h4,
+      .md h5,
+      .md h6 {
+        font-size: 1em;
+      }
+      .md code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.85em;
+        background: color-mix(in srgb, var(--border) 45%, transparent);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      .md pre {
+        background: #0A0A0A;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px 12px;
+        overflow-x: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .md pre code {
+        background: none;
+        border: none;
+        padding: 0;
+      }
+      .md a {
+        color: var(--accent-hi);
+        text-decoration: underline;
+      }
+      .md a:hover {
+        filter: brightness(1.15);
+      }
+      .md blockquote {
+        margin: 0.5em 0;
+        padding-left: 10px;
+        border-left: 2px solid var(--border);
+        color: var(--text-muted);
+      }
+      .md hr {
+        border: 0;
+        border-top: 1px solid var(--border);
+      }
+      .md table {
+        border-collapse: collapse;
+      }
+      .md th,
+      .md td {
+        border: 1px solid var(--border);
+        padding: 4px 8px;
+      }
+      .md th {
+        background: color-mix(in srgb, var(--border) 40%, transparent);
+      }
+      .md strong {
+        font-weight: 600;
+      }
+      .feedback {
+        align-self: flex-start;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 4px;
+      }
+      .feedback button {
+        font-size: 16px;
+        line-height: 1;
+        padding: 4px 8px;
+        border: 1px solid var(--border);
+        background: transparent;
+        border-radius: 6px;
+        cursor: pointer;
+        opacity: 0.75;
+        transition: border-color 120ms ease, background 120ms ease, opacity 120ms ease;
+      }
+      .feedback button.up:hover:not(:disabled) {
+        border-color: var(--accent-hi);
+        opacity: 1;
+      }
+      .feedback button.down:hover:not(:disabled) {
+        border-color: var(--error);
+        opacity: 1;
+      }
+      .feedback button:disabled {
+        cursor: default;
+      }
+      .feedback button.selected {
+        cursor: default;
+        opacity: 1;
+      }
+      .feedback button.selected.up {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .feedback button.selected.down {
+        background: var(--error);
+        border-color: var(--error);
+      }
+      .pill {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .pill.running {
+        color: var(--running);
+        border-color: color-mix(in srgb, var(--running) 45%, transparent);
+        background: color-mix(in srgb, var(--running) 12%, transparent);
+        align-self: flex-start;
+        margin-left: 4px;
+      }
+      .pill.running .dot {
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      .pill.scored {
+        color: var(--accent-hi);
+        border-color: color-mix(in srgb, var(--accent-hi) 45%, transparent);
+        background: color-mix(in srgb, var(--accent-hi) 12%, transparent);
+      }
+      .pill.variant {
+        color: var(--text-muted);
+        border-color: var(--border);
+      }
+      .triage-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .triage-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .badge {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        background: color-mix(in srgb, var(--border) 25%, transparent);
+      }
+      .suggested-reply-label {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+      .suggested-reply-text {
+        white-space: pre-wrap;
+        line-height: 1.5;
+      }
+      @keyframes pulse {
+        0%, 100% {
+          opacity: 0.4;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      form {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        padding: 12px 16px;
+        background: var(--bg);
+        border-top: 1px solid var(--border);
+        backdrop-filter: blur(8px);
+      }
+      form .input-wrap {
+        max-width: 640px;
+        width: 100%;
+        display: flex;
+        gap: 8px;
+      }
+      input {
+        flex: 1;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-family: "Inter", sans-serif;
+      }
+      input::placeholder {
+        color: var(--text-muted);
+      }
+      input:focus {
+        outline: none;
+        border-color: var(--accent-hi);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hi) 25%, transparent);
+      }
+      button.send {
+        padding: 10px 18px;
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-family: "Inter", sans-serif;
+        font-weight: 500;
+        cursor: pointer;
+        transition: filter 120ms ease, background 120ms ease;
+      }
+      button.send:hover:not(:disabled) {
+        filter: brightness(1.15);
+      }
+      button.send:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="https://unpkg.com/marked@12/marked.min.js"></script>
+    <script src="https://unpkg.com/dompurify@3/dist/purify.min.js"></script>
+    <script type="text/plain" id="app-source">
+      const { useState } = React;
+
+      marked.setOptions({ gfm: true, breaks: true });
+
+      function Markdown({ text }) {
+        const html = DOMPurify.sanitize(marked.parse(text));
+        return <div className="md" dangerouslySetInnerHTML={{ __html: html }} />;
+      }
+
+      // Duplicated from src/triage.ts (a plain HTML file can't import that
+      // TS module) — that file is the source of truth for the allowed
+      // urgency enum values; this is just the display color for each one.
+      const URGENCY_COLORS = {
+        low: "#66BD8B",
+        medium: "#D9A441",
+        high: "#E8823C",
+        critical: "#F54A3F",
+      };
+
+      // Lightweight duck-type check, not a full zod validation (this file
+      // can't import TS) — just enough to tell a triage JSON reply apart
+      // from an ordinary Markdown reply so it can render as a card instead.
+      function parseTriageForDisplay(text) {
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          return null;
+        }
+        if (
+          parsed &&
+          typeof parsed.category === "string" &&
+          typeof parsed.urgency === "string" &&
+          typeof parsed.sentiment === "string" &&
+          typeof parsed.suggested_reply === "string"
+        ) {
+          return parsed;
+        }
+        return null;
+      }
+
+      function TriageCard({ triage }) {
+        const urgencyColor = URGENCY_COLORS[triage.urgency] ?? "var(--text-muted)";
+        return (
+          <div className="triage-card">
+            <div className="triage-badges">
+              <span className="badge">{triage.category}</span>
+              <span
+                className="badge"
+                style={{ color: urgencyColor, borderColor: urgencyColor, background: "transparent" }}
+              >
+                {triage.urgency}
+              </span>
+              <span className="badge">{triage.sentiment}</span>
+            </div>
+            <div>
+              <div className="suggested-reply-label">Suggested reply</div>
+              <div className="suggested-reply-text">{triage.suggested_reply}</div>
+            </div>
+          </div>
+        );
+      }
+
+      function Thumbs({ messageId, variant }) {
+        const [vote, setVote] = useState(null); // null | true | false
+
+        async function voteClick(up) {
+          if (vote !== null) return; // one vote per message
+          setVote(up);
+          await fetch("/api/feedback", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ messageId, up }),
+          });
+        }
+
+        return (
+          <div className="feedback">
+            <button
+              className={"up" + (vote === true ? " selected" : "")}
+              onClick={() => voteClick(true)}
+              disabled={vote !== null}
+              aria-label="Helpful"
+            >
+              👍
+            </button>
+            <button
+              className={"down" + (vote === false ? " selected" : "")}
+              onClick={() => voteClick(false)}
+              disabled={vote !== null}
+              aria-label="Not helpful"
+            >
+              👎
+            </button>
+            {vote !== null && <span className="pill scored">✓ SCORED</span>}
+            {variant && <span className="pill variant">{variant}</span>}
+          </div>
+        );
+      }
+
+      function App() {
+        const [messages, setMessages] = useState([]); // {role, text, messageId, variant}
+        const [conversationId, setConversationId] = useState(null);
+        const [input, setInput] = useState("");
+        const [busy, setBusy] = useState(false);
+        const endRef = React.useRef(null);
+
+        React.useEffect(() => {
+          endRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, [messages, busy]);
+
+        async function send(e) {
+          e.preventDefault();
+          const text = input.trim();
+          if (!text || busy) return;
+          setInput("");
+          setBusy(true);
+
+          // Build the payload from the full visible transcript plus the new
+          // user message — the server treats this as the entire conversation
+          // for the model call. Failed turns are excluded on both sides: the
+          // assistant error placeholder (error) and the user message that
+          // triggered it (failed), so a failure isn't silently re-asked as a
+          // stray consecutive user turn.
+          const history = messages
+            .filter((m) => !m.error && !m.failed)
+            .map((m) => ({ role: m.role, content: m.text }));
+          const payload = { messages: [...history, { role: "user", content: text }] };
+          if (conversationId) payload.conversationId = conversationId;
+
+          setMessages((m) => [...m, { role: "user", text }]);
+          try {
+            const res = await fetch("/api/chat", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "request failed");
+            setConversationId(data.conversationId);
+            setMessages((m) => [
+              ...m,
+              {
+                role: "assistant",
+                text: data.reply,
+                messageId: data.messageId,
+                variant: data.variant,
+              },
+            ]);
+          } catch (err) {
+            // Mark the user turn that failed (it's the last message — `busy`
+            // blocks concurrent sends) so future payloads drop it too.
+            setMessages((m) => [
+              ...m.slice(0, -1),
+              { ...m[m.length - 1], failed: true },
+              { role: "assistant", error: true, text: err.message },
+            ]);
+          } finally {
+            setBusy(false);
+          }
+        }
+
+        return (
+          <main>
+            <header className="app-header">
+              <div className="eyebrow">Inngest · Durable Agent</div>
+              <div className="app-title">Support ticket triage — every reply gets scored</div>
+            </header>
+            {messages.map((m, i) => {
+              const triage = m.role === "assistant" && !m.error ? parseTriageForDisplay(m.text) : null;
+              return (
+                <div className={"turn " + m.role} key={i}>
+                  <div className={"bubble" + (m.error ? " error" : "")}>
+                    {m.role === "assistant" && !m.error ? (
+                      triage ? (
+                        <TriageCard triage={triage} />
+                      ) : (
+                        <Markdown text={m.text} />
+                      )
+                    ) : (
+                      m.text
+                    )}
+                  </div>
+                  {m.role === "assistant" && m.messageId && (
+                    <Thumbs messageId={m.messageId} variant={m.variant} />
+                  )}
+                </div>
+              );
+            })}
+            {busy && (
+              <div className="pill running">
+                <span className="dot">●</span> RUNNING
+              </div>
+            )}
+            <div ref={endRef} />
+            <form onSubmit={send}>
+              <div className="input-wrap">
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Paste a customer ticket…"
+                  autoFocus
+                />
+                <button className="send" type="submit" disabled={busy || !input.trim()}>
+                  Send
+                </button>
+              </div>
+            </form>
+          </main>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+    <script>
+      // Transform the JSX source with the classic React runtime, which compiles
+      // JSX to React.createElement(...) calls against the global React from the
+      // UMD bundle. The automatic runtime (Babel's default) would instead emit
+      // `import { jsx } from "react/jsx-runtime"`, which fails in a classic
+      // script with no module resolver. Transformed once on load, then run.
+      const src = document.getElementById("app-source").textContent;
+      const code = Babel.transform(src, {
+        presets: [["react", { runtime: "classic" }]],
+      }).code;
+      const runner = document.createElement("script");
+      runner.textContent = code;
+      document.body.appendChild(runner);
+    </script>
+  </body>
+</html>
