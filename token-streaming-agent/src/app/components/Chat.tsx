@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRealtime } from "inngest/react";
 import { Markdown } from "./Markdown";
 import {
@@ -237,7 +237,12 @@ function extractPython(input: unknown): { code: string; cities: string[] } {
 // Render a run_python result envelope ({ ok, stdout, stderr, result, error })
 // as readable blocks: stdout/result in a code block, error/stderr tinted. Falls
 // back to the raw string if it isn't the expected JSON (e.g. an older run).
-function PythonResultView({ output }: { output: string }) {
+// Memoized: this renders once per tool result and must NOT re-render on every
+// ~40ms token batch during a later answer stream (the live fold re-runs per
+// batch and would otherwise re-parse the JSON + recreate the <pre> DOM ~25x/s,
+// which is the monty-specific OOM/tab-crash path). Props are referentially
+// stable across fold passes, so default shallow compare skips re-render.
+const PythonResultView = memo(function PythonResultView({ output }: { output: string }) {
   let parsed: { stdout?: string; stderr?: string; result?: string; error?: string } | null = null;
   try {
     const v = JSON.parse(output);
@@ -268,12 +273,15 @@ function PythonResultView({ output }: { output: string }) {
       {!stdout && !result && !problem ? <code>(no output)</code> : null}
     </div>
   );
-}
+});
 
 // Shared renderer for one trace/tool line's content, used by both the persisted
 // TraceDetails and the live in-flight list. run_python gets multi-line code and
 // output as proper code blocks; every other tool keeps the compact inline view.
-function ToolDetail({
+// Memoized for the same reason as PythonResultView — a tool line belongs to an
+// earlier turn and its props are stable once the result arrives, so it must not
+// re-render (and re-stringify/re-parse) on every token batch of a later turn.
+const ToolDetail = memo(function ToolDetail({
   name,
   kind,
   input,
@@ -316,7 +324,7 @@ function ToolDetail({
       {label} returned <code>{clip(output ?? "")}</code>
     </>
   );
-}
+});
 
 function TraceDetails({ trace }: { trace: TraceItem[] }) {
   const toolCalls = trace.filter((item) => item.type === "tool.called").length;

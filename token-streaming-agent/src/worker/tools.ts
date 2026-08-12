@@ -229,13 +229,13 @@ function weatherReading(city: string): CityWeather {
 }
 
 function getWeather(city: string): string {
-  return JSON.stringify(weatherReading(city));
+  return truncate(JSON.stringify(weatherReading(city)));
 }
 
 // One call, many cities — returns an array of the same rich readings, so the
 // model can fetch several cities at once instead of looping get_weather.
 function getWeatherMulti(cities: string[]): string {
-  return JSON.stringify(cities.map((c) => weatherReading(String(c))));
+  return truncate(JSON.stringify(cities.map((c) => weatherReading(String(c)))));
 }
 
 // The host values exposed to a run_python script as top-level variables. Reuses

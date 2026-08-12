@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from "react";
+import { createElement, memo, type ReactNode } from "react";
 
 // Minimal, dependency-free Markdown renderer for assistant chat bubbles.
 //
@@ -24,13 +24,19 @@ import { createElement, type ReactNode } from "react";
 // transcript/history — only the on-screen render is clipped.
 const MAX_RENDER_CHARS = 20_000;
 
-export function Markdown({ text }: { text: string }) {
+// Memoized: the parent Chat re-renders on every ~40ms token batch during
+// streaming, and a settled assistant turn's text never changes while another
+// turn streams. Without memo, every settled bubble re-parses its full Markdown
+// (parseSpans creates a React element per span) ~25×/sec — on a long,
+// formatting-heavy reply (e.g. monty analysis output) that allocation storm
+// OOMs the tab. `text` is the only prop, so a shallow compare skips re-parse.
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const capped =
     text.length > MAX_RENDER_CHARS
       ? text.slice(0, MAX_RENDER_CHARS) + "\n\n… (output truncated)"
       : text;
   return <div className="md">{renderBlocks(capped)}</div>;
-}
+});
 
 // A line begins a non-paragraph block — used so paragraph gathering stops at the
 // next structural element instead of swallowing it.
@@ -195,10 +201,17 @@ function parseSpans(text: string, keyPrefix: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   let k = 0;
-  let m: RegExpExecArray | null;
-  INLINE_RE.lastIndex = 0;
-
-  while ((m = INLINE_RE.exec(text)) !== null) {
+  // Iterate via matchAll, NOT a manual `INLINE_RE.exec` loop. INLINE_RE is a
+  // module-level regex with the `g` flag (stateful lastIndex), and parseSpans
+  // recurses — bold/italic/link re-parse their inner content. With exec, each
+  // recursive call resets and mutates the SHARED `INLINE_RE.lastIndex`; when it
+  // returns, the outer loop's lastIndex has been clobbered to 0, so the next
+  // exec re-scans from the start and re-matches the same token forever, pushing
+  // unbounded elements until the tab OOMs. (This is the monty crash: its
+  // formatting-heavy output is the first content to hit a bold/italic/link.)
+  // matchAll iterates over an internal clone and never touches lastIndex, so
+  // recursion is fully isolated.
+  for (const m of text.matchAll(INLINE_RE)) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const key = `${keyPrefix}-${k++}`;
     if (m[1]) {
@@ -218,7 +231,7 @@ function parseSpans(text: string, keyPrefix: string): ReactNode[] {
         </a>,
       );
     }
-    last = INLINE_RE.lastIndex;
+    last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
