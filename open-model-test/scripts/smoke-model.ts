@@ -11,6 +11,7 @@
 import { config } from "../src/config";
 import { loadTasks } from "../src/tasks";
 import { buildGenerationRequest, createAdapter, providerTarget } from "../src/models/adapter";
+import { extractFiles } from "../src/extract";
 
 for (const model of config.models) {
   const { apiKeyEnv, baseURL } = providerTarget(model);
@@ -32,8 +33,13 @@ for (const model of config.models) {
   );
   const req = buildGenerationRequest(task, model, config, 1234, { turn: 1, prevFiles: null, prevFeedback: null });
   const result = await createAdapter(model).generate(req);
-  console.log(`   extracted:       ${result.extracted}`);
+  // The real pipeline's parser (marker contract for agentic tasks, fenced
+  // block otherwise) — not the single-fence extractor, so a marker-format
+  // reply shows as extracted.
+  const files = extractFiles(result.raw, task.entrypoint);
+  console.log(`   extracted:       ${files.extracted} (${Object.keys(files.files).join(", ") || "none"})${files.parseError ? ` — ${files.parseError}` : ""}`);
   console.log(`   tokens:          ${result.tokensPrompt ?? "?"} in / ${result.tokensCompletion ?? "?"} out`);
+  console.log(`   reasoning chars: ${result.reasoningChars}`);
   console.log(`   ttft:            ${result.ttftMs ?? "?"} ms`);
   console.log(`   tokens/sec:      ${result.tokensPerSec?.toFixed(1) ?? "?"}`);
   console.log(`   latency:         ${result.latencyMs} ms`);

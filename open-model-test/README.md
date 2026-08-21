@@ -93,9 +93,9 @@ cp .env.example .env
    ```
 
 Budget: the default matrix (2 models × 5 tasks × k=5 = 50 samples) runs in
-roughly 45–90 min at current medians; cost depends on the pinned rate cards
-(the M3 placeholder pricing must be pinned at Δ2 before real runs — see
-`config/benchmark.yaml`).
+roughly 45–90 min at current medians; cost per the pinned rate cards
+(M3 $0.30/$1.20 per Mtok — Nebius, Δ2-pinned 2026-08-21; Sonnet
+$2.00/$10.00 — OpenRouter), snapshotted into every run's `meta.rateCard`.
 
 ## Local dev (dev server)
 
@@ -125,6 +125,7 @@ BENCHMARK_CONFIG=config/benchmark.aa.yaml bun run benchmark
 | Script | What it does |
 |---|---|
 | `bun run smoke:model [taskId]` | One real generation per model, no Inngest — the Δ1 gate: verifies each provider's auth, endpoint, model string, streaming metrics, thinking toggle, extraction |
+| `bun run probe:nebius [waves]` | Δ3 gate: waves of parallel generations against the M3 endpoint — 429/TTFT behavior + rate-limit header snapshot (Nebius responses carry no `x-ratelimit-*` headers; headroom is measured behaviorally) |
 | `bun run benchmark` | Triggers the full matrix (`models × tasks × k`) and polls until complete |
 | `bun run export [runId]` | Re-export a run's rows/summary + console master table (read-only DB) |
 | `bun run typecheck` | `tsc --noEmit` |

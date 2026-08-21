@@ -10,11 +10,14 @@ models:
     adapter: openai_compat
     endpoint: ${NEBIUS_BASE_URL}
     api_key_env: NEBIUS_API_KEY
-    # TODO(Δ1): confirm the exact Nebius model string for M3, and that FP8
-    # is the only served variant — if several exist, pick one and encode it
-    # in the id above.
-    model: MiniMax/MiniMax-M3
-    concurrency: 4 # TODO(Δ3): confirm Nebius rate-limit headroom for the batch window, then set
+    # Confirmed at Δ1 (2026-08-21, GET /v1/models): the org prefix is
+    # MiniMaxAI, not MiniMax (the OpenRouter spelling). Exactly one M3
+    # variant is served — no precision-variant model strings — so the fp8
+    # in the id comes from Nebius's model card, not a variant slug.
+    model: MiniMaxAI/MiniMax-M3
+    concurrency: 4 # Δ3-confirmed (2026-08-21): 12-parallel probe, no 429s, no
+    # TTFT inflation — ~3x demonstrated headroom. The x-ratelimit-* headers
+    # Nebius documents are absent from responses (Finding 18).
     params:
       temperature: 0.2
       top_p: 0.95
@@ -23,16 +26,24 @@ models:
       max_tokens: 8192
       # Thinking toggle (spec v3 §7): pinned ONCE, applied identically
       # across batch and live runs, recorded on every result row.
+      # Δ1-confirmed wire spelling: false → reasoning_effort "none" (the
+      # only spelling that suppresses M3's default-on reasoning); true →
+      # param omitted (provider default = thinking on). A literal `thinking`
+      # body param is silently ignored by Nebius.
       # TODO(Δ4): the A/A sanity run (config/benchmark.aa.yaml) decides
       # on/off with data; whichever is pinned gets disclosed in the article.
       thinking: false
-    # TODO(Δ2): pin from the Nebius rate card at setup and date the pin.
-    # Standard-tier pricing applies — the tasks never approach the 512K
-    # long-context tier (spec v3 §8.5). 0.0 placeholders make unpinned runs
-    # visibly wrong instead of silently plausible.
+    # Δ2-pinned (2026-08-21): $0.30/$1.20 per Mtok — the Nebius rate-card
+    # price, corroborated by two independent Nebius-specific price trackers
+    # (typingmind's Nebius calculator, whichllm's MiniMaxAI/MiniMax-M3 page)
+    # and consistent with the first-party cluster price in Finding 14.
+    # Nebius's public docs don't expose per-model pricing (console login
+    # required) — provenance disclosed; the first billed run cross-checks.
+    # Standard tier — the tasks never approach the 512K long-context tier
+    # (spec v3 §8.5).
     pricing:
-      input_per_mtok: 0.0
-      output_per_mtok: 0.0
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
 
   # Baseline: Sonnet, routed via OpenRouter. Spec v3 §11 sketched a direct
   # Anthropic adapter; keeping the baseline on the same OpenAI-compatible
@@ -40,16 +51,17 @@ models:
   # a disclosed deviation, see README design notes.
   - id: claude-sonnet-openrouter
     adapter: openrouter
-    # TODO(Δ2): pin the exact Sonnet snapshot slug (spec v3 §15 open
-    # decision #2) — hosted models change under you, and the run date is
-    # part of the identity (spec v3 §13).
-    model: anthropic/claude-sonnet-5
+    # Δ2-pinned snapshot slug (2026-08-21): the OpenRouter endpoints API
+    # shows all 9 backing providers serving exactly this dated snapshot.
+    # The alias would silently track whatever Anthropic ships next; the
+    # dated slug can't drift (spec v3 §15 open decision #2, resolved).
+    model: anthropic/claude-sonnet-5-20260630
     concurrency: 4
     params:
       temperature: 0.2
       top_p: 0.95
       max_tokens: 8192
-    pricing: # USD per 1M tokens, from OpenRouter's pricing API (pinned 2026-08-17)
+    pricing: # USD per 1M tokens, from OpenRouter's pricing API (pinned 2026-08-17; re-verified 2026-08-21 — $2.00/$10.00 on 6/9 endpoints, $2.20/$11.00 on the rest; the reported per-generation cost stays authoritative)
       input_per_mtok: 2.00
       output_per_mtok: 10.00
 

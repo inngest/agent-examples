@@ -34,6 +34,10 @@ export type GenerationResult = {
   tokensPerSec: number | null;
   latencyMs: number;
   costUsd: number | null;
+  // M3-on-Nebius streams an out-of-band `reasoning_content` channel (Δ1):
+  // size in chars, recorded per turn so the Δ4 A/A run can quantify thinking
+  // verbosity. 0 for models without the channel (the baseline).
+  reasoningChars: number;
 };
 
 export interface ModelAdapter {
@@ -183,13 +187,24 @@ type UsageWithCost = { cost?: number };
 
 type StreamParams = Parameters<OpenAI["chat"]["completions"]["stream"]>[0];
 
-// MiniMax M3's thinking toggle (spec v3 §7). The exact wire spelling on
-// Nebius is confirmed by the Δ1 smoke test — THIS is the single place to
-// adjust if it differs (candidates: a `reasoning_effort` value, an
-// `enable_thinking` chat-template kwarg, a model-string variant).
+// MiniMax M3's thinking toggle (spec v3 §7) — Δ1-confirmed wire spelling
+// (2026-08-21, token-level probes on tokenfactory.nebius.com):
+//
+// - A literal `thinking: true|false` body param is ACCEPTED but IGNORED —
+//   no 400, no effect; M3 reasons by default either way.
+// - `enable_thinking`, `chat_template_kwargs.enable_thinking`,
+//   `reasoning: {enabled|exclude}` — same silent no-op.
+// - `reasoning_effort: "none"` is the only spelling that suppresses
+//   reasoning (0 reasoning_content chars across repeats; every other value
+//   or an omitted param leaves it on).
+//
+// So: thinking=false → reasoning_effort "none"; thinking=true → omit the
+// param (provider default = thinking on). Nebius's usage chunk reports
+// `reasoning_tokens: 0` even while reasoning streams — but `completion_tokens`
+// INCLUDES the reasoning tokens, so output-token cost math stays honest.
 function applyThinking(params: StreamParams, thinking: boolean | undefined): void {
-  if (thinking === undefined) return;
-  Object.assign(params, { thinking });
+  if (thinking === undefined || thinking === true) return;
+  Object.assign(params, { reasoning_effort: "none" });
 }
 
 function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
@@ -198,8 +213,15 @@ function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
     modelId: model.id,
     async generate(req) {
       const startedAt = Date.now();
+      // First/last token across BOTH channels (content and reasoning_content):
+      // a reasoning model streams its thinking preamble before any content, so
+      // first-content-token TTFT and content-phase tok/s would understate the
+      // wait and inflate throughput (Δ1 finding). For non-reasoning models
+      // (the baseline) the reasoning channel never fires and nothing changes.
       let firstTokenAt: number | null = null;
+      let lastTokenAt: number | null = null;
       let raw = "";
+      let reasoningChars = 0;
       let tokensPrompt: number | null = null;
       let tokensCompletion: number | null = null;
       let nativeCostUsd: number | null = null;
@@ -235,10 +257,18 @@ function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
       const stream = clientFor(target).chat.completions.stream(params);
 
       for await (const chunk of stream) {
-        const delta = chunk.choices?.[0]?.delta?.content;
-        if (delta) {
+        const delta = chunk.choices?.[0]?.delta as
+          | { content?: string | null; reasoning_content?: string | null }
+          | undefined;
+        if (delta?.reasoning_content) {
           if (firstTokenAt === null) firstTokenAt = Date.now();
-          raw += delta;
+          lastTokenAt = Date.now();
+          reasoningChars += delta.reasoning_content.length;
+        }
+        if (delta?.content) {
+          if (firstTokenAt === null) firstTokenAt = Date.now();
+          lastTokenAt = Date.now();
+          raw += delta.content;
         }
         if (chunk.usage) {
           tokensPrompt = chunk.usage.prompt_tokens ?? null;
@@ -251,11 +281,16 @@ function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
       const latencyMs = Date.now() - startedAt;
       const { code, extracted } = extractCode(raw);
 
-      // tokens/sec measures the generation phase (first token to done), not
-      // the full request — prompt processing shouldn't dilute it.
+      // tokens/sec measures the generation phase (first token to last token,
+      // both channels), not the full request — prompt processing shouldn't
+      // dilute it. Short replies that arrive in one buffered burst have a
+      // zero-width window: tok/s is null rather than fabricated (Δ1: short
+      // Nebius responses can land in a single flush).
       let tokensPerSec: number | null = null;
-      if (tokensCompletion !== null && firstTokenAt !== null && latencyMs - (firstTokenAt - startedAt) > 0) {
-        tokensPerSec = tokensCompletion / ((latencyMs - (firstTokenAt - startedAt)) / 1000);
+      const genWindowMs =
+        firstTokenAt !== null && lastTokenAt !== null ? lastTokenAt - firstTokenAt : 0;
+      if (tokensCompletion !== null && genWindowMs > 0) {
+        tokensPerSec = tokensCompletion / (genWindowMs / 1000);
       }
 
       // Config-pinned pricing is the default; OpenRouter's reported cost
@@ -278,6 +313,7 @@ function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
         tokensPerSec,
         latencyMs,
         costUsd,
+        reasoningChars,
       };
     },
   };

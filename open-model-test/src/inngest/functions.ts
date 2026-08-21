@@ -135,6 +135,7 @@ type TurnTraceEntry = {
   tokensCompletion: number | null;
   latencyMs: number | null;
   costUsd: number | null;
+  reasoningChars: number | null;
   stdoutExcerpt: string;
   stderrExcerpt: string;
 };
@@ -237,6 +238,7 @@ async function executeSampleBody(modelId: string, step: Step, data: unknown): Pr
       tokensCompletion: gen.tokensCompletion,
       latencyMs: gen.latencyMs,
       costUsd: gen.costUsd,
+      reasoningChars: gen.reasoningChars,
       stdoutExcerpt: result.stdout.slice(-2048),
       stderrExcerpt: result.stderr.slice(-2048),
     });

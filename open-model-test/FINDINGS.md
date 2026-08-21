@@ -1,9 +1,11 @@
 # Test Findings — open-model-test
 
 Reference notes for the article. Everything below is from verified runs, with
-raw data in `results/<run_id>/`. Last updated: 2026-08-20 (v3 reframe
-shipped: contender swap to MiniMax M3 on Nebius; OpenRouter M3 pool audited;
-no scored M3 runs yet — Δ1–Δ5 pending, so no M3 performance numbers exist and
+raw data in `results/<run_id>/`. Last updated: 2026-08-21 (Δ1–Δ3 passed —
+Nebius live end-to-end with corrected model string/thinking wire/metric
+semantics; Sonnet pinned to dated snapshot `…-20260630`; M3 rate card pinned
+$0.30/$1.20 with disclosed provenance; batch concurrency 4 confirmed with
+~3× headroom. Still no scored M3 runs, so no M3 performance numbers exist and
 none are invented below).
 
 ## v3 reframe — M3 (Nebius) vs Sonnet (2026-08-20; engineering state)
@@ -57,7 +59,9 @@ Two side observations: (a) a first-party MiniMax endpoint sits in the pool
 at the standard $0.30/$1.20 — open decision #4 (first-party footnote run)
 could use it via OpenRouter provider-pinning or direct; (b) the OpenRouter
 endpoints expose the toggle as `reasoning`/`include_reasoning` params — a
-hint, not proof, of the wire spelling Nebius uses (Δ1 confirms).
+hint, not proof, of the wire spelling Nebius uses (Δ1 verdict, Finding 16b:
+the hint was wrong — Nebius ignores `reasoning: {...}`; the off-switch is
+`reasoning_effort: "none"`).
 
 ### Finding 15 — v3 breaks v2's serving symmetry (article caveat, pre-registered)
 
@@ -70,22 +74,179 @@ must not present cross-model latency ratios as pure model speed. v2's
 tok/s-is-noise caveat (142→1,233 tok/s same model same task) almost
 certainly still applies to the routed side.
 
-### Cost reference points (pending pins)
+### Finding 16 — Δ1: the gate earned its keep (2026-08-21, live probes on tokenfactory.nebius.com)
 
-M3 cluster price $0.30/$1.20 per Mtok vs Sonnet pinned $2.00/$10.00
-(2026-08-17) — headline list ratio 15% in / 12% out. Two v2 lessons temper
-that before any run: list-price arithmetic ≠ measured cost (verbosity
-shifts it), and M3 is a reasoning model — thinking tokens bill as output,
-so the Δ4 thinking decision directly changes the cost basis. Open decision:
-thinking off = fairer cost/latency, on = fairer capability; A/A run decides,
-decision disclosed.
+Four claims the spec made the smoke gate verify; three needed correction.
+Every number below is from live generations (ad-hoc probe scripts + two full
+`bun run smoke:model` runs); the confirmed spellings are encoded in
+`src/models/adapter.ts` and re-verifiable with the smoke script.
+
+**a) The pinned model string was wrong — auth was never the problem.**
+First live call returned `404 {"detail":"The model \`MiniMax/MiniMax-M3\` does
+not exist."}` — a 404, not a 401, so the key was fine and the spec's guessed
+string wasn't. `GET /v1/models` (30 models): the org prefix is `MiniMaxAI`
+(OpenRouter's lowercase `minimax/` spelling does not carry over). Exactly one
+M3 variant is served (`MiniMaxAI/MiniMax-M3`; an older M2.5 also exists) —
+no precision-variant model strings, so the `fp8` in the identity rests on
+Nebius's model card, not a variant slug. Fixed in all three configs.
+
+**b) The `thinking` body param is a silent no-op — the working off-switch is
+`reasoning_effort: "none"`.** M3 on Nebius reasons **by default**, streaming
+an out-of-band `reasoning_content` delta channel before any content. Probed
+spellings (reasoning chars on a trivial prompt; hard-prompt re-checks in
+parens):
+
+| wire spelling | reasoning emitted |
+|---|---|
+| no param (default) | yes — 134 chars (5,539–6,447 on hard prompt) |
+| `thinking: false` | yes — ignored, 134 chars |
+| `enable_thinking: false` | yes — 53 chars |
+| `chat_template_kwargs: {enable_thinking: false}` | yes — 109 chars |
+| `reasoning: {enabled: false}` | yes — 147 chars |
+| `reasoning: {exclude: true}` | yes — 97 chars |
+| `reasoning_effort: "low"` | yes — 97 chars |
+| `reasoning_effort: "none"` | **no — 0 chars, 0/4 runs** |
+
+Finding 14's hint (OpenRouter exposes `reasoning`/`include_reasoning`) was
+wrong in a useful way: Nebius accepts `reasoning: {...}` without error and
+ignores it. Silent acceptance of unknown params is the trap — no 400 ever
+fires, so only token-level output diffs can prove a toggle works.
+`applyThinking()` now maps `thinking: false → reasoning_effort: "none"` and
+`thinking: true →` omit (provider default = on), so the Δ4 A/A pair differs
+by exactly one wire bit.
+
+**c) Reasoning tokens are hidden in `reasoning_tokens` but billed in
+`completion_tokens`.** The usage chunk reports `reasoning_tokens: 0` even
+while thousands of reasoning chars stream — but `completion_tokens` includes
+them (hard prompt: 2,184/2,374 completion with ~5.5–6.4K reasoning chars vs
+714/1,013 with reasoning off). So cost math over `completion_tokens` stays
+honest, and the "thinking tokens bill as output" cost caveat is now
+measured, not assumed: on the same smoke task, thinking-off M3 finished at
+154–206 completion tokens; default-on burned 921 — the on/off decision
+(Δ4) moves the output-token basis ~4–6×.
+
+**d) Stream-metric semantics were wrong for a reasoning model — and a burst
+artifact faked 3,502 tok/s.** The adapter measured TTFT as first *content*
+token and tok/s over the content phase only. With M3 streaming reasoning
+first, TTFT excluded the entire thinking preamble and tok/s divided
+reasoning-inclusive `completion_tokens` by a content-only window — the first
+smoke run "achieved" 3,502 tok/s because 921 tokens landed in a ~260 ms
+burst (short Nebius replies can arrive in a single flush). Fixed: TTFT is
+first token of **any** channel; tok/s is completion tokens over the
+first→last-token window; a zero-width burst window yields null rather than a
+fabricated number. Non-reasoning models (Sonnet) are unaffected — its smoke
+numbers barely moved (105.6 → 103.2 tok/s). `reasoningChars` is now recorded
+per turn in the trace for the Δ4 A/A analysis. Post-fix smoke (same task,
+thinking off): M3 TTFT 1.2 s, 96.4 tok/s, extracted `truncate.go` via
+markers; Sonnet TTFT 2.0 s, 103.2 tok/s, $0.003766 (OpenRouter-reported
+cost). M3 cost showed $0.000000 — the Δ2 `0.0` placeholders doing their
+visibly-wrong job.
+
+Side observation for Δ3: provider-observed TTFT on Nebius is noisy — three
+identical thinking-off smoke requests measured 5.1 s / 20.3 s / 1.2 s to
+first token. Same shape as v2's OpenRouter tail-latency finding (Finding 3's
+186.9 s outlier): the concurrency/headroom gate should watch first-token
+variance, not just throughput.
+
+### Finding 17 — Δ2: pins are in, provenance disclosed (2026-08-21)
+
+**a) Sonnet pinned to a dated snapshot: `anthropic/claude-sonnet-5-20260630`.**
+The OpenRouter endpoints API shows all 9 backing providers (Anthropic,
+Amazon Bedrock ×2, Azure ×2, Google ×3) serving exactly this dated snapshot.
+The alias `anthropic/claude-sonnet-5` currently maps to it — but aliases
+silently re-point when the vendor ships; a dated slug can't drift. Verified
+live (the slug routes and completes). One wrinkle: the completion response
+echoes the *alias* in its `model` field, so the response alone doesn't prove
+which snapshot served you — the endpoints-API dump plus the run date
+(spec v3 §13) are the pin's evidence. Pool pricing is mixed: $2.00/$10.00
+on 6/9 endpoints, $2.20/$11.00 on 3 (Bedrock + 2× Google) — dynamic routing
+over mixed prices means the per-sample price depends on the provider drawn,
+which is exactly why the harness lets OpenRouter's reported per-generation
+cost override config math (v2 Finding 6): the baseline's cost column stays
+the billed number, not an estimate.
+
+**b) M3 rate card pinned: $0.30/$1.20 per Mtok — from corroborated third
+parties, not the primary source.** Nebius's public docs expose no per-model
+pricing (the console page is login-gated; legacy `docs.nebius.com/studio/
+pricing` URLs redirect to the Token Factory quickstart). The pin comes from
+two independent Nebius-specific trackers (typingmind's Nebius pricing
+calculator; whichllm.io's `nebius-MiniMaxAI--MiniMax-M3` page), consistent
+with the first-party cluster price in Finding 14's OpenRouter pool dump.
+Disclosed provenance, dated pin, snapshotted into every run's
+`meta.rateCard`; the first billed run cross-checks it against the Nebius
+console. Post-pin smoke (thinking off): M3 673 in / 154 out → **$0.000387**
+— matches hand math exactly (673·$0.30/M + 154·$1.20/M); Sonnet $0.003766
+(reported). On pinned list prices, M3 is 15% in / 12% out of Sonnet —
+measured ratios wait for Δ5.
+
+**c) Δ3 intel from the rate-limits doc (headroom probe design).** Nebius
+rate limits are dynamic: rolling 15-minute buckets; ≥80% average usage →
+limit ×1.2 next window, ≤50% → ÷1.5; hard ceiling 20× the base allocation;
+429 on excess; `x-ratelimit-*` response headers expose remaining
+requests/tokens plus the current dynamic scale factor; over-limit requests
+may still process at lower priority with `x-ratelimit-over-limit: yes` (an
+early warning, not an error). Defaults are account-specific (console,
+login-gated). Implication: for a 50-sample matrix the binding risk is not
+RPM at concurrency 4 — it's tail TTFT (Finding 16 side note). Δ3's probe
+should fire parallel generations and read the headers, not guess.
+
+### Finding 18 — Δ3: headroom confirmed behaviorally; the documented header channel isn't there (2026-08-21)
+
+Probe: `bun run probe:nebius` (committed as the Δ3 gate script) — waves of
+4/8/12 parallel streaming generations, identical tiny prompts, reasoning off.
+
+| wave (parallel) | ok | TTFT min/med/max ms |
+|---|---|---|
+| 4 (= batch concurrency) | 4/4 | 1,372 / 1,372 / 1,387 |
+| 8 | 8/8 | 718 / 966 / 1,229 |
+| 12 | 12/12 | 676 / 1,236 / 1,631 |
+
+- **No 429s, no over-limit warnings, at 12 parallel = 3× the configured
+  batch concurrency of 4 — and TTFT did not inflate with parallelism.**
+  Batch concurrency 4 is safe with ~3× demonstrated headroom; the binding
+  risk for the matrix stays provider-side tail TTFT (Finding 16 side note),
+  which is variance, not self-inflicted queuing. Probe cost: 24 tiny
+  reasoning-off requests — fractions of a cent.
+- **The `x-ratelimit-*` response headers Nebius's rate-limits doc documents
+  (limits, remaining, dynamic-scale factor) are not present on Token Factory
+  chat-completions responses** — the snapshot found only `x-request-id`.
+  The doc's own monitoring advice (track remaining via headers, watch
+  `x-ratelimit-over-limit`) can't be implemented as written; headroom had to
+  be measured behaviorally. Docs-vs-reality sibling of Finding 16b's silent
+  param acceptance — the Δ-gate pattern (verify the provider's claims, not
+  the docs) pays again.
+- TTFT in the 4-wave clustered at ~1,372–1,387 ms across all four requests,
+  and later waves measured *faster* — consistent with prompt caching on the
+  identical probe prompt warming between waves (Nebius bills a cache-hit
+  input tier; the Δ1 smoke also showed identical-prompt variance shrinking
+  across runs). Noise floor caveat: single-request TTFT has ranged
+  0.68–20.3 s across all Δ1–Δ3 probes on this account — treat any one
+  number as a draw, not a constant.
+
+### Cost reference points (Δ2-pinned 2026-08-21)
+
+M3 pinned $0.30/$1.20 per Mtok (Finding 17b) vs Sonnet pinned $2.00/$10.00
+(2026-08-17, re-verified 2026-08-21) — headline list ratio 15% in / 12% out.
+Two v2 lessons temper that before any run: list-price arithmetic ≠ measured
+cost (verbosity shifts it), and M3 is a reasoning model — thinking tokens
+bill as output (Δ1-measured: ~4–6× the output-token basis with thinking on,
+see Finding 16c), so the Δ4 thinking decision directly changes the cost
+basis. Open decision: thinking off = fairer cost/latency, on = fairer
+capability; A/A run decides, decision disclosed.
 
 ### State of the gates (spec v3 §14)
 
-Δ1 Nebius smoke (auth, `MiniMax/MiniMax-M3` string confirmation, streaming,
-thinking wire) — **pending, needs `NEBIUS_API_KEY`** · Δ2 pin Sonnet slug +
-rate cards over `0.0` placeholders · Δ3 Nebius headroom → concurrency · Δ4
-thinking A/A (`benchmark.aa.yaml`) · Δ5 full matrix · Δ6 reporting.
+Δ1 Nebius smoke (auth, model string, streaming, thinking wire) — **done,
+2026-08-21** (Finding 16: model string corrected to `MiniMaxAI/MiniMax-M3`,
+thinking wire is `reasoning_effort: "none"`, TTFT/tok/s semantics fixed for
+the reasoning channel; smoke green both providers) · Δ2 pins — **done,
+2026-08-21** (Finding 17: Sonnet pinned to `anthropic/claude-sonnet-5-20260630`
++ verified live; M3 $0.30/$1.20 pinned with disclosed provenance; smoke costs
+now real) · Δ3 Nebius headroom → concurrency — **done, 2026-08-21** (Finding
+18: 12-parallel probe, no 429s/TTFT inflation, concurrency 4 confirmed with
+~3× headroom; documented `x-ratelimit-*` headers absent from responses) · Δ4
+thinking A/A (`benchmark.aa.yaml` — both arms on the confirmed spelling,
+pricing pinned) · Δ5 full matrix · Δ6 reporting.
 
 ## M4/M5 — T2/T3 suite + tier breakdowns
 

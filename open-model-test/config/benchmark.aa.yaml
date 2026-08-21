@@ -18,12 +18,12 @@ models:
     adapter: openai_compat
     endpoint: ${NEBIUS_BASE_URL}
     api_key_env: NEBIUS_API_KEY
-    model: MiniMax/MiniMax-M3 # TODO(Δ1): confirm exact Nebius M3 string
+    model: MiniMaxAI/MiniMax-M3 # Δ1-confirmed (2026-08-21)
     concurrency: 4
     params: { temperature: 0.2, top_p: 0.95, max_tokens: 8192, thinking: false }
-    pricing: # TODO(Δ2): pin from the Nebius rate card + date it
-      input_per_mtok: 0.0
-      output_per_mtok: 0.0
+    pricing: # Δ2-pinned 2026-08-21 (Nebius rate card — see benchmark.yaml)
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
 
   # Same endpoint, same params — only the thinking bit differs. The -thinking
   # suffix keeps the two variants distinct in every result row and the
@@ -32,12 +32,12 @@ models:
     adapter: openai_compat
     endpoint: ${NEBIUS_BASE_URL}
     api_key_env: NEBIUS_API_KEY
-    model: MiniMax/MiniMax-M3
+    model: MiniMaxAI/MiniMax-M3
     concurrency: 4
     params: { temperature: 0.2, top_p: 0.95, max_tokens: 8192, thinking: true }
-    pricing:
-      input_per_mtok: 0.0
-      output_per_mtok: 0.0
+    pricing: # Δ2-pinned 2026-08-21 (Nebius rate card — see benchmark.yaml)
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
 
 prompting:
   system: "You are a Go coding assistant. Return code changes only."
