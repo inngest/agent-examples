@@ -9,6 +9,7 @@
     "inngest": "INNGEST_DEV=1 inngest-cli dev",
     "smoke:model": "bun run scripts/smoke-model.ts",
     "probe:nebius": "bun run scripts/nebius-headroom.ts",
+    "validate:tasks": "bun run scripts/validate-tasks.ts",
     "benchmark": "bun run scripts/run-benchmark.ts",
     "export": "bun run scripts/export-results.ts",
     "typecheck": "tsc --noEmit"

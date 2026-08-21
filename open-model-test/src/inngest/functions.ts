@@ -43,6 +43,42 @@ function seedFor(modelId: string, taskId: string, sample: number): number {
   return hashSeed(modelId, taskId, String(sample));
 }
 
+// Host binaries each suite language needs on PATH (local runner). Probed
+// through the same `bash -c` + inherited-env mechanism the runner uses, so
+// "probed" means "will actually resolve", not "is installed somewhere".
+const LOCAL_TOOLCHAINS: Record<string, string[]> = {
+  go: ["go", "gofmt"],
+  typescript: ["bun"],
+};
+
+// Harness bug #8 (2026-08-21): the host Go toolchain had been removed and a
+// full A/A run scored 16/16 samples compile-fail with `bash: go: command
+// not found` — $0.055 of model spend producing a 0% that looked like a model
+// result. Environment must be validated before any spend, the same way task
+// suites are validated with known-bad solutions before models see them.
+async function checkLocalToolchains(tasks: { language: string }[]): Promise<string[]> {
+  const langs = [...new Set(tasks.map((t) => t.language))];
+  const missing: string[] = [];
+  for (const lang of langs) {
+    for (const bin of LOCAL_TOOLCHAINS[lang] ?? []) {
+      const proc = Bun.spawn(["bash", "-c", `command -v ${bin} >/dev/null 2>&1`], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      const code = await proc.exited;
+      if (code !== 0) missing.push(`${bin} (needed by ${lang} tasks)`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new NonRetriableError(
+      `local sandbox runner: toolchain missing from the worker's PATH — ${missing.join("; ")}. ` +
+        `Install them and relaunch the worker BEFORE triggering a run: samples would otherwise ` +
+        `burn model spend on guaranteed compile-fails.`,
+    );
+  }
+  return langs;
+}
+
 // -- orchestrate-run ---------------------------------------------------------
 
 export const orchestrateRun = inngest.createFunction(
@@ -68,6 +104,12 @@ export const orchestrateRun = inngest.createFunction(
       }
       return all.filter((t) => wanted.includes(t.id));
     });
+
+    // Fail fast on a broken execution environment (see checkLocalToolchains):
+    // one step, before create-run/fan-out — zero model spend.
+    if (config.sandbox.runner === "local") {
+      await step.run("check-toolchains", () => checkLocalToolchains(tasks));
+    }
 
     const runId = await step.run("create-run", () => {
       const id = parsed.data.runId ?? newRunId();

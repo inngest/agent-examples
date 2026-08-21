@@ -8,7 +8,7 @@ func TestSlugify(t *testing.T) {
 	}{
 		{"Hello, World!", "hello-world"},
 		{"  Multiple   Spaces  ", "multiple-spaces"},
-		{"café_réstaurant", "caf-restaurant"},
+		{"café_réstaurant", "caf-rstaurant"},
 		{"!!!", ""},
 		{"", ""},
 		{"already-a-slug", "already-a-slug"},
