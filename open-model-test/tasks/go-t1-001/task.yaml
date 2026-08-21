@@ -1,0 +1,23 @@
+id: go-t1-001
+language: go
+tier: T1
+task_type: coding
+prompt: |
+  Implement `WordFrequency(s string) map[string]int` in package `words`
+  (solution.go), which counts how many times each word appears in s.
+
+  Rules:
+  - A word is a maximal run of Unicode letters or digits; everything else
+    (spaces, punctuation, symbols) is a separator.
+  - Counting is case-insensitive: "Go go GO" yields {"go": 3}.
+  - Unicode letters count: "café" is a single word.
+  - An empty or separator-only string yields an empty (non-nil) map.
+entrypoint: solution.go
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 60
+max_agent_turns: 1

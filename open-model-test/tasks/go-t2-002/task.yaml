@@ -1,0 +1,48 @@
+id: go-t2-002
+language: go
+tier: T2
+task_type: coding
+prompt: |
+  Implement a small interval-set module in package `interval` (solution.go).
+
+  Intervals are half-open: `[Start, End)` — Start inclusive, End exclusive.
+  A well-formed interval has Start < End; a degenerate interval has
+  Start >= End.
+
+  Export exactly:
+
+  ```go
+  type Interval struct {
+      Start int
+      End   int
+  }
+
+  // Normalize sorts the intervals by Start and merges any that overlap OR
+  // touch (gap of zero). Degenerate intervals are dropped. The returned
+  // slice is always non-nil.
+  func Normalize(xs []Interval) []Interval
+
+  // TotalLength returns the number of integers covered by the union of xs.
+  // The input is NOT normalized first — overlapping intervals must not
+  // double-count. Degenerate intervals contribute zero.
+  func TotalLength(xs []Interval) int
+  ```
+
+  Semantics:
+  - Normalize of an empty or all-degenerate input returns an empty non-nil
+    slice.
+  - Touching intervals merge: [1,3) and [3,5) become [1,5).
+  - Containment collapses: [1,10) contains [2,3).
+  - TotalLength may be called with unsorted, overlapping input; it must
+    count the union, not the sum of parts.
+  - Negative coordinates behave like any other integers.
+  - Normalize must not mutate its input slice.
+entrypoint: solution.go
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 60
+max_agent_turns: 1

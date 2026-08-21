@@ -1,0 +1,55 @@
+{
+  "runId": "2026-08-17-a9a982",
+  "models": [
+    {
+      "model": "qwen-3.8-27b",
+      "tasks": 2,
+      "samplesPerTask": 2,
+      "passAtK": 0.5,
+      "meanPassRate": 0.9666666666666667,
+      "variancePassRate": 0.0033333333333333322,
+      "compileRate": 0.75,
+      "staticPassRate": 1,
+      "medianLatencyMs": 40043,
+      "medianTtftMs": 32714,
+      "medianTokensPerSec": 231.692846999337,
+      "medianCostUsd": 0.004733375,
+      "totalCostUsd": 0.03036383,
+      "sandboxPendingSamples": 0,
+      "failedSamples": 0,
+      "byTier": [
+        {
+          "tier": "T1",
+          "tasks": 2,
+          "passAtK": 0.5,
+          "meanPassRate": null
+        }
+      ]
+    },
+    {
+      "model": "sonnet",
+      "tasks": 2,
+      "samplesPerTask": 2,
+      "passAtK": 1,
+      "meanPassRate": 1,
+      "variancePassRate": 0,
+      "compileRate": 1,
+      "staticPassRate": 1,
+      "medianLatencyMs": 15108.5,
+      "medianTtftMs": 12565.5,
+      "medianTokensPerSec": 532.947118283631,
+      "medianCostUsd": 0.015759000000000002,
+      "totalCostUsd": 0.078686,
+      "sandboxPendingSamples": 0,
+      "failedSamples": 0,
+      "byTier": [
+        {
+          "tier": "T1",
+          "tasks": 2,
+          "passAtK": 1,
+          "meanPassRate": null
+        }
+      ]
+    }
+  ]
+}

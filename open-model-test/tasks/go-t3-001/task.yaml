@@ -1,0 +1,46 @@
+id: go-t3-001
+language: go
+tier: T3
+task_type: coding
+prompt: |
+  Implement a small arithmetic expression evaluator in package `expr`
+  (solution.go).
+
+  Export exactly:
+
+  ```go
+  // Eval parses and evaluates s against the given variables.
+  func Eval(s string, vars map[string]float64) (float64, error)
+  ```
+
+  Grammar (whitespace between tokens is allowed anywhere, including inside
+  numbers? NO — whitespace terminates numbers and identifiers):
+
+      expr    := term (('+'|'-') term)*
+      term    := factor (('*'|'/') factor)*
+      factor  := '-' factor | base ('^' factor)?
+      base    := number | ident | '(' expr ')'
+
+  The unary-minus placement makes -2^2 = -(2^2) = -4 (and (-2)^2 = 4);
+  '^' (exponentiation via math.Pow) is right-associative: 2^3^2 = 512.
+
+  Semantics:
+  - Numbers are integer or decimal literals ("2", "3.14"). No exponents,
+    no leading '+'.
+  - `ident` is a lookup in vars; a missing variable is an error
+    ("unknown variable: <name>"). Identifiers are ASCII letters and digits
+    starting with a letter.
+  - Division by zero returns an error, not +Inf.
+  - Any syntax error (unbalanced parens, trailing tokens like "2 3",
+    empty input, two operators in a row, '.') returns an error. Error
+    messages are free-form but must be non-nil.
+  - An empty `vars` map and a nil map behave identically.
+entrypoint: solution.go
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 90
+max_agent_turns: 1

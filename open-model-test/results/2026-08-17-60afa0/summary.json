@@ -1,0 +1,79 @@
+{
+  "runId": "2026-08-17-60afa0",
+  "models": [
+    {
+      "model": "qwen-3.8-27b",
+      "tasks": 5,
+      "samplesPerTask": 2,
+      "passAtK": 1,
+      "meanPassRate": 1,
+      "variancePassRate": 0,
+      "compileRate": 0.9,
+      "staticPassRate": 1,
+      "medianLatencyMs": 35452.5,
+      "medianTtftMs": 31217.5,
+      "medianTokensPerSec": 435.1055158155182,
+      "medianCostUsd": 0.00516825,
+      "totalCostUsd": 0.0663318,
+      "sandboxPendingSamples": 0,
+      "failedSamples": 0,
+      "byTier": [
+        {
+          "tier": "T1",
+          "tasks": 2,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "tier": "T2",
+          "tasks": 2,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "tier": "T3",
+          "tasks": 1,
+          "passAtK": 1,
+          "meanPassRate": 1
+        }
+      ]
+    },
+    {
+      "model": "sonnet",
+      "tasks": 5,
+      "samplesPerTask": 2,
+      "passAtK": 1,
+      "meanPassRate": 1,
+      "variancePassRate": 0,
+      "compileRate": 1,
+      "staticPassRate": 1,
+      "medianLatencyMs": 7994.5,
+      "medianTtftMs": 5020.5,
+      "medianTokensPerSec": 270.7219179546996,
+      "medianCostUsd": 0.009414,
+      "totalCostUsd": 0.229976,
+      "sandboxPendingSamples": 0,
+      "failedSamples": 0,
+      "byTier": [
+        {
+          "tier": "T1",
+          "tasks": 2,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "tier": "T2",
+          "tasks": 2,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "tier": "T3",
+          "tasks": 1,
+          "passAtK": 1,
+          "meanPassRate": 1
+        }
+      ]
+    }
+  ]
+}

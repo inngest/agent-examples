@@ -1,0 +1,68 @@
+run:
+  k_samples: 5 # samples per task for pass@k + variance
+  seed_policy: vary # vary seeds across samples (deterministic per (run, model, task, sample))
+
+models:
+  # Contender (spec v3): MiniMax M3, served in FP8 on Nebius Token Factory's
+  # OpenAI-compatible API. The identity string encodes provider + served
+  # precision (spec v3 §10) and is recorded verbatim in every result row.
+  - id: minimax-m3-fp8-nebius
+    adapter: openai_compat
+    endpoint: ${NEBIUS_BASE_URL}
+    api_key_env: NEBIUS_API_KEY
+    # TODO(Δ1): confirm the exact Nebius model string for M3, and that FP8
+    # is the only served variant — if several exist, pick one and encode it
+    # in the id above.
+    model: MiniMax/MiniMax-M3
+    concurrency: 4 # TODO(Δ3): confirm Nebius rate-limit headroom for the batch window, then set
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      # Same output budget as the baseline — a cap difference would be an
+      # unfair confound (a truncated solution fails the compile gate).
+      max_tokens: 8192
+      # Thinking toggle (spec v3 §7): pinned ONCE, applied identically
+      # across batch and live runs, recorded on every result row.
+      # TODO(Δ4): the A/A sanity run (config/benchmark.aa.yaml) decides
+      # on/off with data; whichever is pinned gets disclosed in the article.
+      thinking: false
+    # TODO(Δ2): pin from the Nebius rate card at setup and date the pin.
+    # Standard-tier pricing applies — the tasks never approach the 512K
+    # long-context tier (spec v3 §8.5). 0.0 placeholders make unpinned runs
+    # visibly wrong instead of silently plausible.
+    pricing:
+      input_per_mtok: 0.0
+      output_per_mtok: 0.0
+
+  # Baseline: Sonnet, routed via OpenRouter. Spec v3 §11 sketched a direct
+  # Anthropic adapter; keeping the baseline on the same OpenAI-compatible
+  # protocol preserves v2's comparability and the committed run history —
+  # a disclosed deviation, see README design notes.
+  - id: claude-sonnet-openrouter
+    adapter: openrouter
+    # TODO(Δ2): pin the exact Sonnet snapshot slug (spec v3 §15 open
+    # decision #2) — hosted models change under you, and the run date is
+    # part of the identity (spec v3 §13).
+    model: anthropic/claude-sonnet-5
+    concurrency: 4
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      max_tokens: 8192
+    pricing: # USD per 1M tokens, from OpenRouter's pricing API (pinned 2026-08-17)
+      input_per_mtok: 2.00
+      output_per_mtok: 10.00
+
+prompting:
+  # Identical across models — this exact string is recorded with every run.
+  # {entrypoint} is replaced with the task's entrypoint filename (coding
+  # tasks) or a generic phrase (agentic tasks).
+  system: "You are a Go coding assistant. Return code changes only."
+  user_suffix: |
+    Write the complete contents of {entrypoint}. Put the code in a single fenced code block. Do not include any other files.
+  # file_format / fix_suffix (the agentic multi-file marker contract and the
+  # fix-turn instruction) default from src/config.ts and are recorded per run.
+
+sandbox:
+  runner: local
+  default_timeout_seconds: 60

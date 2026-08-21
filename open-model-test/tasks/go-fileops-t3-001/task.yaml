@@ -1,0 +1,37 @@
+id: go-fileops-t3-001
+language: go
+tier: T3
+task_type: agentic_fileops
+prompt: |
+  The `mw` package sketches an HTTP-agnostic middleware chain (types in
+  `mw.go`), but `Chain` in `chain.go` is unimplemented. Make the chain
+  real with this exact contract:
+
+  - `New(handlers ...Handler) *Chain` builds a chain that later executes
+    the handlers in the ORDER THEY WERE PASSED (first added runs first).
+  - `(*Chain) Do(ctx *Ctx) error` runs every handler in order against the
+    same Ctx.
+  - If a handler returns an error, execution STOPS immediately: remaining
+    handlers are not run, and Do returns that error (wrapped is fine, but
+    errors.Is against the original must succeed).
+  - If a handler PANICS, Do recovers, skips the remaining handlers, and
+    returns an error whose message contains the recovered value formatted
+    with %v. Do must not panic.
+  - Handlers communicate through `Ctx.Set`/`Ctx.Get` (already implemented);
+    a nil Ctx passed to Do returns an error instead of panicking.
+  - An empty chain (no handlers) returns nil.
+  - `Chain.Do` may be called multiple times; each call starts fresh (the
+    Ctx carries per-call state, the chain itself is stateless).
+
+  You may add files or rework chain.go/mw.go as long as `New`, `Do`,
+  `Handler`, and `Ctx` keep their signatures.
+entrypoint: ""
+workspace: workspace/
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 90
+max_agent_turns: 6

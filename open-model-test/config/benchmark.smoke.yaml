@@ -1,0 +1,46 @@
+run:
+  k_samples: 2 # samples per task for pass@k + variance
+  seed_policy: vary # vary seeds across samples (deterministic per (run, model, task, sample))
+
+models:
+  # Mirror of config/benchmark.yaml with k=2 for cheap harness iteration —
+  # same models, same identity conventions, same TODO(Δ1/Δ2) pins.
+  - id: minimax-m3-fp8-nebius
+    adapter: openai_compat
+    endpoint: ${NEBIUS_BASE_URL}
+    api_key_env: NEBIUS_API_KEY
+    model: MiniMax/MiniMax-M3 # TODO(Δ1): confirm exact Nebius M3 string
+    concurrency: 4
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      max_tokens: 8192
+      thinking: false # TODO(Δ4): pin via the A/A run
+    pricing: # TODO(Δ2): pin from the Nebius rate card + date it
+      input_per_mtok: 0.0
+      output_per_mtok: 0.0
+
+  - id: claude-sonnet-openrouter
+    adapter: openrouter
+    model: anthropic/claude-sonnet-5 # TODO(Δ2): pin exact snapshot slug
+    concurrency: 4
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      # Same output budget as the contender — a cap difference would be an
+      # unfair confound (a truncated solution fails the compile gate).
+      max_tokens: 8192
+    pricing:
+      input_per_mtok: 2.00
+      output_per_mtok: 10.00
+
+prompting:
+  # Identical across models — this exact string is recorded with every run.
+  # {entrypoint} is replaced with the task's entrypoint filename.
+  system: "You are a coding assistant. Return only the code for {entrypoint}."
+  user_suffix: |
+    Write the complete contents of {entrypoint}. Put the code in a single fenced code block. Do not include any other files.
+
+sandbox:
+  runner: local
+  default_timeout_seconds: 60
