@@ -92,10 +92,11 @@ cp .env.example .env
    bun run export [runId]      # artifacts → results/<run_id>/{rows,summary}.json
    ```
 
-Budget: the default matrix (2 models × 5 tasks × k=5 = 50 samples) runs in
-roughly 45–90 min at current medians; cost per the pinned rate cards
+Budget: the default matrix (2 models × 10 tasks × k=5 = 100 samples) runs in
+roughly 60–120 min at current medians; cost per the pinned rate cards
 (M3 $0.30/$1.20 per Mtok — Nebius, Δ2-pinned 2026-08-21; Sonnet
 $2.00/$10.00 — OpenRouter), snapshotted into every run's `meta.rateCard`.
+Est. total: well under $1 at A/A-observed per-sample costs.
 
 ## Local dev (dev server)
 
