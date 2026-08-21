@@ -1,13 +1,13 @@
 # Test Findings — open-model-test
 
 Reference notes for the article. Everything below is from verified runs, with
-raw data in `results/<run_id>/`. Last updated: 2026-08-21 (Δ1–Δ4 passed —
+raw data in `results/<run_id>/`. Last updated: 2026-08-21 (Δ1–Δ5 passed —
 Nebius live with corrected model string/thinking wire/metric semantics; pins
-in (Sonnet dated slug, M3 $0.30/$1.20); concurrency 4 confirmed; thinking
-pinned **off** by the A/A (`2026-08-21-9658e7`, Finding 20) after two more
-harness bugs were caught and fixed (Finding 19). First scored M3 numbers now
-exist — A/A only, k=2, 4-task slice; no Δ5 full-matrix numbers yet and none
-are invented below).
+in (Sonnet dated slug, M3 $0.30/$1.20); thinking pinned **off** (Finding 20);
+full matrix `2026-08-21-c2ef21` on a clean stamp: **M3 90% pass@k / 92.7%
+mean pass rate vs Sonnet 100% / 100%, at 7.3% of the total spend ($0.12 vs
+$1.67), 11.6% per green sample** — Finding 21. The gap is one task, one
+deterministic grammar edge. Δ6 reporting remains).
 
 ## v3 reframe — M3 (Nebius) vs Sonnet (2026-08-20; engineering state)
 
@@ -296,6 +296,78 @@ Cross-run variance note: off's go-t2-001 passed 1/2 in `d45d26` — samples
 flip run-to-run at temp 0.2 despite identical seeds (Nebius's seed support
 is unverified, Finding 16), so k=5 in Δ5 is load-bearing.
 
+### Finding 21 — Δ5 full matrix: 90% of the baseline's pass@k at 7% of the spend (2026-08-21, run `2026-08-21-c2ef21`)
+
+The clean-stamp run: commit `5bdf732`, `gitDirty: false`, 2 models × 10
+tasks × k=5 = 100 samples, thinking-off M3 (Δ4 pin) vs Sonnet dated slug.
+Wall clock ~10 min (dev server, concurrency 4 per model).
+
+| | M3 (thinking off, Nebius FP8) | Sonnet (OpenRouter) |
+|---|---|---|
+| pass@k (task-level) | **90%** | **100%** |
+| mean test pass rate | 92.7% | 100% |
+| compile rate | 76% | 92% |
+| green samples | 29/50 (58%) | 46/50 (92%) |
+| median latency | **3.53 s** | 5.87 s |
+| median TTFT | **749 ms** | 3,975 ms |
+| median tok/s | 171.6 | 90.4 |
+| median $/sample | **$0.000958** | $0.006695 |
+| total spend | **$0.1225** | $1.6673 |
+| cost per *green* sample | **$0.0042** | $0.0362 |
+
+**a) The parity claim doesn't quite survive — but the value claim does.**
+Sonnet swept every task at k=5; M3 dropped pass@k on exactly one: go-t3-001
+(0/5). Measured cost ratio: median $/sample 14.3% (list said 15%/12% —
+measured ≈ list this time), cost per green sample 11.6%, total spend 7.3%.
+"90% of the tasks at ~1/13th the cost per passing sample" is the honest
+headline — parity no, parity-adjacent value yes.
+
+**b) The frontier gap is one deterministic grammar edge.** M3's go-t3-001:
+0/5 green, yet **5/5 samples scored exactly 4/5 tests** — every sample
+built a complete recursive-descent evaluator (right-assoc `^`, unary minus,
+vars, div-by-zero) and every sample failed only `TestEvalErrors`, on one
+edge: `Eval("+2")` returned a value instead of an error (s0–s1), or
+`Eval(".5")` did (s3–s4). One missing rejection rule, five times, at temp
+0.2 with varied seeds. That is what "closed-frontier parity" looks like
+under execution: not broad incompetence — the *last* error-edge of a spec
+the prompt explicitly pins ("no leading '+'"). And the fix is the mode the
+equal-budget protocol excluded (Finding 20): thinking-on M3 catches
+exactly this class — the tension between fair-cost and fair-capability
+protocols is now a data point, not a hypothetical.
+
+**c) "Failures are the expensive samples" — replicated, and inverted.**
+v2's pattern (Finding 2) industrialized by the agentic loop: Sonnet's ONE
+weak task, go-fileops-t2-002, burned **$0.97 — 58% of the baseline's
+entire run spend** — on 4 samples × 4 turns × ~17.5K output tokens each
+(~$0.197/sample, 29× its own median), going green only once (turn 4).
+M3's failures were *cheap*: its whole run, failures included, cost $0.12 —
+less than one failed Sonnet sample. Cost-per-green is the metric that
+matters and the expensive-failure dynamic it captures now cuts *against*
+the frontier model.
+
+**d) Latency/TTFT favor M3 — with the pre-registered caveat attached.**
+M3's medians are faster on all three speed metrics, but the serving paths
+are asymmetric (Finding 15): Nebius-direct vs OpenRouter-routed (Sonnet's
+4.0 s TTFT is router-inclusive; v2 measured 142→1,233 tok/s router noise).
+Provider-observed, not model-speed; the article must not present cross-
+model latency ratios as pure model speed. Within-model ordering across
+tiers is still fair game.
+
+**e) k=5 was load-bearing (again).** M3's task-level greens span 1/5
+(go-t2-001) to 5/5 (three tasks); Sonnet's single weakness is invisible in
+task-level pass@k (1.0) and only shows in sample-level greenRate (0.92) and
+cost. The agentic loop earned its turns for both models: 7 of M3's and 6 of
+Sonnet's greens arrived after turn 1.
+
+**f) Static checks: 100% both.** gofmt/vet pass everywhere (EOF-newline
+normalization from v2 Finding 5 in effect) — formatting is a solved
+problem for both model classes, and static checks no longer discriminate.
+
+Task-level greens (M3 / Sonnet, of 5): fileops-t1 3/5·5, fileops-t2-001
+2/5·5, fileops-t2-002 3/5·1, fileops-t3-001 5/5·5, fileops-t3-002 3/5·5,
+go-t1-001 4/5·5, go-t1-002 3/5·5, go-t2-001 1/5·5, go-t2-002 5/5·5,
+go-t3-001 0/5·5. Raw: `results/2026-08-21-c2ef21/{rows,summary}.json`.
+
 ### Cost reference points (Δ2-pinned 2026-08-21)
 
 M3 pinned $0.30/$1.20 per Mtok (Finding 17b) vs Sonnet pinned $2.00/$10.00
@@ -312,11 +384,11 @@ thinking-off basis; the on-arm's numbers are recorded in the A/A artifacts).
 Δ1 Nebius smoke — **done, 2026-08-21** (Finding 16) · Δ2 pins — **done,
 2026-08-21** (Finding 17) · Δ3 headroom → concurrency — **done, 2026-08-21**
 (Finding 18) · Δ4 thinking A/A — **done, 2026-08-21: thinking OFF pinned**
-(Findings 19–20: two harness bugs found en route — toolchain gate +
-unpassable tasks fixed, validation matrix committed; decision data in
-`results/2026-08-21-9658e7/`) · Δ5 full matrix (2 models × 10 tasks × k=5,
-thinking-off M3 vs Sonnet — run from a committed repo so the stamp is
-clean) · Δ6 reporting.
+(Findings 19–20) · Δ5 full matrix — **done, 2026-08-21** (Finding 21: run
+`2026-08-21-c2ef21`, clean stamp `5bdf732` — M3 90% pass@k / 92.7% pass
+rate at 7.3% of Sonnet's total spend; the parity gap is one deterministic
+T3 grammar edge) · Δ6 reporting (article drafting — everything above is
+the evidence base).
 
 ## M4/M5 — T2/T3 suite + tier breakdowns
 

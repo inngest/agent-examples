@@ -1,0 +1,50 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 902,
+    "tokensCompletion": 597,
+    "latencyMs": 3199,
+    "costUsd": 0.000987,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# example.com/mw\n./chain.go:40:6: declared and not used: err\n\n"
+  },
+  {
+    "turn": 2,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 6,
+    "testsTotal": 8,
+    "green": false,
+    "tokensPrompt": 1607,
+    "tokensCompletion": 462,
+    "latencyMs": 2759,
+    "costUsd": 0.0010365,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "07:00\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\"}\n{\"Time\":\"2026-08-21T13:23:09.935108-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Output\":\"=== RUN   TestNilCtx\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.935109-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Output\":\"--- PASS: TestNilCtx (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.93511-07:00\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:23:09.935111-07:00\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\"}\n{\"Time\":\"2026-08-21T13:23:09.935112-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Output\":\"=== RUN   TestEmptyChain\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.935119-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Output\":\"--- PASS: TestEmptyChain (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.935124-07:00\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:23:09.935125-07:00\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\"}\n{\"Time\":\"2026-08-21T13:23:09.935126-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Output\":\"=== RUN   TestReuse\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.935127-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Output\":\"--- PASS: TestReuse (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.935128-07:00\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:23:09.935129-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Output\":\"FAIL\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.935848-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Output\":\"FAIL\\texample.com/mw\\t0.144s\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:09.935876-07:00\",\"Action\":\"fail\",\"Package\":\"example.com/mw\",\"Elapsed\":0.144}\n\n",
+    "stderrExcerpt": ""
+  },
+  {
+    "turn": 3,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 8,
+    "testsTotal": 8,
+    "green": true,
+    "tokensPrompt": 3424,
+    "tokensCompletion": 415,
+    "latencyMs": 2437,
+    "costUsd": 0.0015252,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "08-21T13:23:14.135017-07:00\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\"}\n{\"Time\":\"2026-08-21T13:23:14.135019-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Output\":\"=== RUN   TestNilCtx\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:14.13502-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Output\":\"--- PASS: TestNilCtx (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:14.135022-07:00\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:23:14.135023-07:00\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\"}\n{\"Time\":\"2026-08-21T13:23:14.135024-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Output\":\"=== RUN   TestEmptyChain\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:14.135026-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Output\":\"--- PASS: TestEmptyChain (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:14.135027-07:00\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:23:14.135029-07:00\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\"}\n{\"Time\":\"2026-08-21T13:23:14.13503-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Output\":\"=== RUN   TestReuse\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:14.135039-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Output\":\"--- PASS: TestReuse (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:14.135041-07:00\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:23:14.135042-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:23:14.135376-07:00\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Output\":\"ok  \\texample.com/mw\\t0.148s\\n\"}\n{\"Time\":\"2026-08-21T13:23:14.136054-07:00\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Elapsed\":0.149}\n\n",
+    "stderrExcerpt": ""
+  }
+]

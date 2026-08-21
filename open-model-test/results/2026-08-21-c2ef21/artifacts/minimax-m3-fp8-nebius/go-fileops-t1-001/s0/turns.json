@@ -1,0 +1,50 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 673,
+    "tokensCompletion": 153,
+    "latencyMs": 1330,
+    "costUsd": 0.0003855,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# example.com/strkit\n./truncate.go:25:1: syntax error: non-declaration statement outside function body\n\n"
+  },
+  {
+    "turn": 2,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 940,
+    "tokensCompletion": 155,
+    "latencyMs": 1184,
+    "costUsd": 0.000468,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# example.com/strkit\n./truncate.go:26:1: syntax error: non-declaration statement outside function body\n\n"
+  },
+  {
+    "turn": 3,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 942,
+    "tokensCompletion": 155,
+    "latencyMs": 1523,
+    "costUsd": 0.0004686,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# example.com/strkit\n./truncate.go:26:1: syntax error: non-declaration statement outside function body\n\n"
+  }
+]

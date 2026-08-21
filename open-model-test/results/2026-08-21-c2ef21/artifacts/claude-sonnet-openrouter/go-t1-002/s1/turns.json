@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 1,
+    "testsTotal": 1,
+    "green": true,
+    "tokensPrompt": 404,
+    "tokensCompletion": 3356,
+    "latencyMs": 32234,
+    "costUsd": 0.034368,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\nok  \tslug\t0.205s [no tests to run]\n\n$ go test ./... -json\n{\"Time\":\"2026-08-21T13:28:00.706749-07:00\",\"Action\":\"start\",\"Package\":\"slug\"}\n{\"Time\":\"2026-08-21T13:28:00.855899-07:00\",\"Action\":\"run\",\"Package\":\"slug\",\"Test\":\"TestSlugify\"}\n{\"Time\":\"2026-08-21T13:28:00.855983-07:00\",\"Action\":\"output\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Output\":\"=== RUN   TestSlugify\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:28:00.856242-07:00\",\"Action\":\"output\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Output\":\"--- PASS: TestSlugify (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:28:00.856254-07:00\",\"Action\":\"pass\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:28:00.856261-07:00\",\"Action\":\"output\",\"Package\":\"slug\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:28:00.857069-07:00\",\"Action\":\"output\",\"Package\":\"slug\",\"Output\":\"ok  \\tslug\\t0.150s\\n\"}\n{\"Time\":\"2026-08-21T13:28:00.859866-07:00\",\"Action\":\"pass\",\"Package\":\"slug\",\"Elapsed\":0.153}\n\n",
+    "stderrExcerpt": ""
+  }
+]

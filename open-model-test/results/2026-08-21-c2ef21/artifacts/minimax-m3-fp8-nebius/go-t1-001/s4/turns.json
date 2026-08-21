@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 6,
+    "testsTotal": 6,
+    "green": true,
+    "tokensPrompt": 306,
+    "tokensCompletion": 171,
+    "latencyMs": 1744,
+    "costUsd": 0.000297,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "tWordFrequencyUnicode\"}\n{\"Time\":\"2026-08-21T13:24:55.357429-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyUnicode\",\"Output\":\"=== RUN   TestWordFrequencyUnicode\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:24:55.357431-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyUnicode\",\"Output\":\"--- PASS: TestWordFrequencyUnicode (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:24:55.357432-07:00\",\"Action\":\"pass\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyUnicode\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:24:55.357433-07:00\",\"Action\":\"run\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyDigits\"}\n{\"Time\":\"2026-08-21T13:24:55.357434-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyDigits\",\"Output\":\"=== RUN   TestWordFrequencyDigits\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:24:55.357435-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyDigits\",\"Output\":\"--- PASS: TestWordFrequencyDigits (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:24:55.357456-07:00\",\"Action\":\"pass\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyDigits\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:24:55.357458-07:00\",\"Action\":\"run\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyEmpty\"}\n{\"Time\":\"2026-08-21T13:24:55.357459-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyEmpty\",\"Output\":\"=== RUN   TestWordFrequencyEmpty\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:24:55.357461-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyEmpty\",\"Output\":\"--- PASS: TestWordFrequencyEmpty (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:24:55.357462-07:00\",\"Action\":\"pass\",\"Package\":\"words\",\"Test\":\"TestWordFrequencyEmpty\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T13:24:55.357463-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T13:24:55.35793-07:00\",\"Action\":\"output\",\"Package\":\"words\",\"Output\":\"ok  \\twords\\t0.140s\\n\"}\n{\"Time\":\"2026-08-21T13:24:55.358629-07:00\",\"Action\":\"pass\",\"Package\":\"words\",\"Elapsed\":0.141}\n\n",
+    "stderrExcerpt": ""
+  }
+]
