@@ -1,12 +1,13 @@
 # Test Findings — open-model-test
 
 Reference notes for the article. Everything below is from verified runs, with
-raw data in `results/<run_id>/`. Last updated: 2026-08-21 (Δ1–Δ3 passed —
-Nebius live end-to-end with corrected model string/thinking wire/metric
-semantics; Sonnet pinned to dated snapshot `…-20260630`; M3 rate card pinned
-$0.30/$1.20 with disclosed provenance; batch concurrency 4 confirmed with
-~3× headroom. Still no scored M3 runs, so no M3 performance numbers exist and
-none are invented below).
+raw data in `results/<run_id>/`. Last updated: 2026-08-21 (Δ1–Δ4 passed —
+Nebius live with corrected model string/thinking wire/metric semantics; pins
+in (Sonnet dated slug, M3 $0.30/$1.20); concurrency 4 confirmed; thinking
+pinned **off** by the A/A (`2026-08-21-9658e7`, Finding 20) after two more
+harness bugs were caught and fixed (Finding 19). First scored M3 numbers now
+exist — A/A only, k=2, 4-task slice; no Δ5 full-matrix numbers yet and none
+are invented below).
 
 ## v3 reframe — M3 (Nebius) vs Sonnet (2026-08-20; engineering state)
 
@@ -223,6 +224,78 @@ Probe: `bun run probe:nebius` (committed as the Δ3 gate script) — waves of
   0.68–20.3 s across all Δ1–Δ3 probes on this account — treat any one
   number as a draw, not a constant.
 
+### Finding 19 — the A/A that couldn't: two more harness bugs, caught by spending money (2026-08-21, runs `7ce0fa`/`d45d26`)
+
+The first Δ4 attempt scored 16/16 compile-fails and exposed **harness bug
+#8: no host Go toolchain** — the machine's `go` had been removed since v2;
+every sample died `bash: go: command not found`, $0.055 of model spend for a
+0% that looked like a model result. Fix: `orchestrate-run` now probes host
+toolchains through the same `bash -c command -v` + inherited-env path the
+local runner uses, NonRetriable, before create-run/fan-out — zero spend on
+a broken environment ever again.
+
+Re-run with Go 1.27 installed: real scores, and **harness bug #9: three of
+ten Go tasks were unpassable-by-omission.** `go-t1-002`, `go-t2-002`,
+`go-t3-001` (the v3 suite expansion) shipped with no `hidden/go.mod` —
+every sample compile-fails at "directory prefix . does not contain main
+module", regardless of code quality. `go-t1-002`'s hidden test was *also*
+self-contradictory: `café_réstaurant → "caf-restaurant"` requires é→e
+transliteration while `l'été est arrivé → "lt-est-arriv"` (and the prompt's
+own "non-ASCII runes are dropped" rule) require dropping — no deterministic
+policy satisfies both. Fixed the expected value to `"caf-rstaurant"`
+(dropping, per the stated rule and the test's own case 18). Fixes: seeds
+added, test corrected, and the good/wrong/broken validation matrix from
+Finding 11 committed as `bun run validate:tasks` (9/9 green, $0) — the step
+whose absence let all of this ship. Lesson repeats, louder: *every* suite
+change re-validates before budget; a scored run is an expensive test
+suite validator.
+
+### Finding 20 — Δ4 A/A verdict: thinking OFF (2026-08-21, run `2026-08-21-9658e7`)
+
+Clean suite, both arms on the Δ1-confirmed wire spelling, 16 samples.
+Provenance: commit `381a307`, `dirty: true` (the two earlier runs' results
+dirs were uncommitted at start — disclosed).
+
+| arm | pass@k | compile | median lat | median TTFT | median tok/s | median $ |
+|---|---|---|---|---|---|---|
+| thinking off | 50% | 50% | 10.4 s | 969 ms | 76.5 | $0.00125 |
+| thinking on | 75% | 62.5% | 35.8 s | 1,000 ms | 91.4 | $0.00464 |
+
+**Decision: `thinking: false`, pinned in `benchmark.yaml` (disclosed).**
+Three reasons, in order of weight:
+
+1. **Thinking-on systematically dies on T3: 4/4 samples across both A/A
+   runs hit the full 8192-token budget with reasoning only — zero content,
+   $0.00999 each, guaranteed compile-fail.** Reasoning tokens bill as
+   output and consume the shared budget (Δ1 Finding 16c), and the equal
+   `max_tokens` rule is experimental protocol, not an infra detail (v2
+   Finding 5). Under this harness's own fairness rules, budget starvation
+   *is* the failure. Raising the thinking arm's cap would break the
+   protocol to rescue a mode — the exact silent compensation the spec
+   forbids.
+2. **3.4× latency, 3.7× cost per sample** (medians), with TTFT identical
+   (~1 s — reasoning streams first but starts just as fast).
+3. The capability story is mixed, not dominant: thinking-on swept T2
+   integration (go-t2-001 2/2 vs 0/2 this run) but flipped go-fileops to
+   1/2, and its T2 win inverted across runs (off was 1/2 in `d45d26`) —
+   k=2 A/A noise, while the T3 cap-death and the cost/latency penalty were
+   stable across every run. When the stable effects all point one way and
+   the noisy one points the other, the stable ones decide.
+
+Article framing: the A/A is a *mode* decision, not a capability result —
+"M3 with reasoning drowned in its own thinking on the hardest tier" is a
+finding about fixed-budget agentic harnesses vs. chat-bench defaults, and
+belongs in the piece (SWE-Bench-style harnesses don't share this budget
+protocol; Terminal-Bench-style ones do).
+
+Per-task detail (run `9658e7`): off swept T1 2/2 and T3 2/2 (5/5 hidden
+tests each, ~1,300–1,500 completion tokens — the evaluator passes without
+reasoning), went 0/2 on go-t2-001 (compile-fails) and 0/2 on fileops after
+4 turns; on swept T1 2/2 and both T2s, died both T3 samples at the cap.
+Cross-run variance note: off's go-t2-001 passed 1/2 in `d45d26` — samples
+flip run-to-run at temp 0.2 despite identical seeds (Nebius's seed support
+is unverified, Finding 16), so k=5 in Δ5 is load-bearing.
+
 ### Cost reference points (Δ2-pinned 2026-08-21)
 
 M3 pinned $0.30/$1.20 per Mtok (Finding 17b) vs Sonnet pinned $2.00/$10.00
@@ -231,22 +304,19 @@ Two v2 lessons temper that before any run: list-price arithmetic ≠ measured
 cost (verbosity shifts it), and M3 is a reasoning model — thinking tokens
 bill as output (Δ1-measured: ~4–6× the output-token basis with thinking on,
 see Finding 16c), so the Δ4 thinking decision directly changes the cost
-basis. Open decision: thinking off = fairer cost/latency, on = fairer
-capability; A/A run decides, decision disclosed.
+basis. Δ4 decided: thinking **off** (Finding 20 — the cost basis is the
+thinking-off basis; the on-arm's numbers are recorded in the A/A artifacts).
 
 ### State of the gates (spec v3 §14)
 
-Δ1 Nebius smoke (auth, model string, streaming, thinking wire) — **done,
-2026-08-21** (Finding 16: model string corrected to `MiniMaxAI/MiniMax-M3`,
-thinking wire is `reasoning_effort: "none"`, TTFT/tok/s semantics fixed for
-the reasoning channel; smoke green both providers) · Δ2 pins — **done,
-2026-08-21** (Finding 17: Sonnet pinned to `anthropic/claude-sonnet-5-20260630`
-+ verified live; M3 $0.30/$1.20 pinned with disclosed provenance; smoke costs
-now real) · Δ3 Nebius headroom → concurrency — **done, 2026-08-21** (Finding
-18: 12-parallel probe, no 429s/TTFT inflation, concurrency 4 confirmed with
-~3× headroom; documented `x-ratelimit-*` headers absent from responses) · Δ4
-thinking A/A (`benchmark.aa.yaml` — both arms on the confirmed spelling,
-pricing pinned) · Δ5 full matrix · Δ6 reporting.
+Δ1 Nebius smoke — **done, 2026-08-21** (Finding 16) · Δ2 pins — **done,
+2026-08-21** (Finding 17) · Δ3 headroom → concurrency — **done, 2026-08-21**
+(Finding 18) · Δ4 thinking A/A — **done, 2026-08-21: thinking OFF pinned**
+(Findings 19–20: two harness bugs found en route — toolchain gate +
+unpassable tasks fixed, validation matrix committed; decision data in
+`results/2026-08-21-9658e7/`) · Δ5 full matrix (2 models × 10 tasks × k=5,
+thinking-off M3 vs Sonnet — run from a committed repo so the stamp is
+clean) · Δ6 reporting.
 
 ## M4/M5 — T2/T3 suite + tier breakdowns
 

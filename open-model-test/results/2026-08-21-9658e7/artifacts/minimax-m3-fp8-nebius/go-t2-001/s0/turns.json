@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 640,
+    "tokensCompletion": 466,
+    "latencyMs": 6645,
+    "costUsd": 0.0007511999999999999,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# ledger\n./solution.go:4:2: \"errors\" imported and not used\n\n"
+  }
+]

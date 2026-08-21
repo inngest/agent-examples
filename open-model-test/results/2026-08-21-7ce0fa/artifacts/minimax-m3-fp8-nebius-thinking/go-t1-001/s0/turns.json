@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 316,
+    "tokensCompletion": 1159,
+    "latencyMs": 5609,
+    "costUsd": 0.0014856,
+    "reasoningChars": 3652,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\nbash: go: command not found\n\n"
+  }
+]

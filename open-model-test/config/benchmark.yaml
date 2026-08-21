@@ -24,14 +24,13 @@ models:
       # Same output budget as the baseline — a cap difference would be an
       # unfair confound (a truncated solution fails the compile gate).
       max_tokens: 8192
-      # Thinking toggle (spec v3 §7): pinned ONCE, applied identically
-      # across batch and live runs, recorded on every result row.
-      # Δ1-confirmed wire spelling: false → reasoning_effort "none" (the
-      # only spelling that suppresses M3's default-on reasoning); true →
-      # param omitted (provider default = thinking on). A literal `thinking`
-      # body param is silently ignored by Nebius.
-      # TODO(Δ4): the A/A sanity run (config/benchmark.aa.yaml) decides
-      # on/off with data; whichever is pinned gets disclosed in the article.
+      # Thinking toggle (spec v3 §7): pinned ONCE by the Δ4 A/A run
+      # (2026-08-21-9658e7, Finding 20): OFF. Data: thinking-on costs 3.4×
+      # latency / 3.7× $ per sample and systematically dies on T3 — 4/4
+      # samples hit the shared 8192 budget with reasoning only, zero
+      # content, ~$0.01 each for guaranteed compile-fails. The equal-budget
+      # rule is protocol (v2 Finding 5), so budget starvation is a real
+      # failure under this harness, not an artifact. Recorded on every row.
       thinking: false
     # Δ2-pinned (2026-08-21): $0.30/$1.20 per Mtok — the Nebius rate-card
     # price, corroborated by two independent Nebius-specific price trackers

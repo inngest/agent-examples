@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 515,
+    "tokensCompletion": 1591,
+    "latencyMs": 20541,
+    "costUsd": 0.0020637,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\npattern ./...: directory prefix . does not contain main module or its selected dependencies\n\n"
+  }
+]

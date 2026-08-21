@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": false,
+    "parseError": "no parseable files in reply (expected --- <path> --- markers or a single fenced code block)",
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 525,
+    "tokensCompletion": 8192,
+    "latencyMs": 77802,
+    "costUsd": 0.0099879,
+    "reasoningChars": 26270,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "no parseable files in reply (expected --- <path> --- markers or a single fenced code block)"
+  }
+]

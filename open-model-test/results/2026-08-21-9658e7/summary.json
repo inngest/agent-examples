@@ -1,0 +1,202 @@
+{
+  "runId": "2026-08-21-9658e7",
+  "meta": {
+    "createdAt": "2026-08-21T20:18:13.155Z",
+    "completedAt": null,
+    "harnessCommit": "381a307880bb263db49fe7f523c661227cd78531",
+    "gitDirty": true,
+    "suiteHash": "5efdbe7a0d1507a1f30df35af22a08df77f89180d2ca7bffe6ccbbacaa64c43c",
+    "config": {
+      "run": {
+        "k_samples": 2,
+        "seed_policy": "vary",
+        "tasks": [
+          "go-t1-001",
+          "go-t2-001",
+          "go-t3-001",
+          "go-fileops-t2-001"
+        ]
+      },
+      "models": [
+        {
+          "id": "minimax-m3-fp8-nebius",
+          "adapter": "openai_compat",
+          "model": "MiniMaxAI/MiniMax-M3",
+          "endpoint": "https://api.tokenfactory.nebius.com/v1/",
+          "api_key_env": "NEBIUS_API_KEY",
+          "concurrency": 4,
+          "params": {
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "max_tokens": 8192,
+            "thinking": false
+          },
+          "pricing": {
+            "input_per_mtok": 0.3,
+            "output_per_mtok": 1.2
+          }
+        },
+        {
+          "id": "minimax-m3-fp8-nebius-thinking",
+          "adapter": "openai_compat",
+          "model": "MiniMaxAI/MiniMax-M3",
+          "endpoint": "https://api.tokenfactory.nebius.com/v1/",
+          "api_key_env": "NEBIUS_API_KEY",
+          "concurrency": 4,
+          "params": {
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "max_tokens": 8192,
+            "thinking": true
+          },
+          "pricing": {
+            "input_per_mtok": 0.3,
+            "output_per_mtok": 1.2
+          }
+        }
+      ],
+      "prompting": {
+        "system": "You are a Go coding assistant. Return code changes only.",
+        "user_suffix": "Write the complete contents of {entrypoint}. Put the code in a single fenced code block. Do not include any other files.\n",
+        "file_format": "\n## Response format\n\nReturn every file you create or change, each in exactly this format:\n\n--- <relative/path.go> ---\n<complete file contents of that file>\n--- <another/path.go> ---\n<complete file contents>\n\nRules:\n- One `--- <path> ---` marker line starts each file; the next marker (or the\n  end of your reply) ends it. No prose outside the markers.\n- Always return the COMPLETE contents of each file you touch — never diffs,\n  never \"... rest unchanged\".\n- Use the exact relative path from the repository root.\n",
+        "fix_suffix": "\nFix the problem shown above and return the corrected file(s) using the same\n--- <path> --- marker format. Return complete files, not diffs. You may\nchange any file, but return only files that need to change.\n"
+      },
+      "sandbox": {
+        "runner": "local",
+        "default_timeout_seconds": 60
+      }
+    },
+    "rateCard": {
+      "minimax-m3-fp8-nebius": {
+        "input_per_mtok": 0.3,
+        "output_per_mtok": 1.2
+      },
+      "minimax-m3-fp8-nebius-thinking": {
+        "input_per_mtok": 0.3,
+        "output_per_mtok": 1.2
+      }
+    }
+  },
+  "models": [
+    {
+      "model": "minimax-m3-fp8-nebius",
+      "tasks": 4,
+      "samplesPerTask": 2,
+      "passAtK": 0.5,
+      "meanPassRate": 1,
+      "variancePassRate": 0,
+      "compileRate": 0.5,
+      "staticPassRate": 1,
+      "turns": {
+        "medianTurnsToGreen": 1,
+        "greenWithinBudgetRate": 0.5,
+        "medianTurnsUsed": 1,
+        "greenByTurn": {
+          "1": 4,
+          "never": 4
+        }
+      },
+      "medianLatencyMs": 10368.5,
+      "medianTtftMs": 968.5,
+      "medianTokensPerSec": 76.5146182231053,
+      "medianCostUsd": 0.00124785,
+      "totalCostUsd": 0.010868099999999999,
+      "sandboxPendingSamples": 0,
+      "failedSamples": 0,
+      "byTier": [
+        {
+          "tier": "T1",
+          "tasks": 1,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "tier": "T2",
+          "tasks": 2,
+          "passAtK": 0,
+          "meanPassRate": null
+        },
+        {
+          "tier": "T3",
+          "tasks": 1,
+          "passAtK": 1,
+          "meanPassRate": 1
+        }
+      ],
+      "byTaskType": [
+        {
+          "task_type": "agentic_fileops",
+          "tasks": 1,
+          "passAtK": 0,
+          "meanPassRate": null
+        },
+        {
+          "task_type": "coding",
+          "tasks": 3,
+          "passAtK": 0.6666666666666666,
+          "meanPassRate": 1
+        }
+      ]
+    },
+    {
+      "model": "minimax-m3-fp8-nebius-thinking",
+      "tasks": 4,
+      "samplesPerTask": 2,
+      "passAtK": 0.75,
+      "meanPassRate": 1,
+      "variancePassRate": 0,
+      "compileRate": 0.625,
+      "staticPassRate": 1,
+      "turns": {
+        "medianTurnsToGreen": 1,
+        "greenWithinBudgetRate": 0.625,
+        "medianTurnsUsed": 1,
+        "greenByTurn": {
+          "1": 5,
+          "never": 3
+        }
+      },
+      "medianLatencyMs": 35810.5,
+      "medianTtftMs": 999.5,
+      "medianTokensPerSec": 91.44625023175931,
+      "medianCostUsd": 0.0046434,
+      "totalCostUsd": 0.040350000000000004,
+      "sandboxPendingSamples": 0,
+      "failedSamples": 0,
+      "byTier": [
+        {
+          "tier": "T1",
+          "tasks": 1,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "tier": "T2",
+          "tasks": 2,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "tier": "T3",
+          "tasks": 1,
+          "passAtK": 0,
+          "meanPassRate": null
+        }
+      ],
+      "byTaskType": [
+        {
+          "task_type": "agentic_fileops",
+          "tasks": 1,
+          "passAtK": 1,
+          "meanPassRate": 1
+        },
+        {
+          "task_type": "coding",
+          "tasks": 3,
+          "passAtK": 0.6666666666666666,
+          "meanPassRate": 1
+        }
+      ]
+    }
+  ]
+}
