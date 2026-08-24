@@ -4,3 +4,4 @@ node_modules
 *.pem
 .DS_Store
 token-streaming-agent/inngest
+.cache/
