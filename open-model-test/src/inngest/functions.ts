@@ -600,6 +600,4 @@ export const aggregateRun = inngest.createFunction(
   },
 );
 
-import { probeExperiment } from "./probe-experiment";
-
-export const allFunctions = [orchestrateRun, executeSample, tallySamples, aggregateRun, probeExperiment];
+export const allFunctions = [orchestrateRun, executeSample, tallySamples, aggregateRun];

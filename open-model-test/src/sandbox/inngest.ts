@@ -10,7 +10,7 @@ import { parseGoTest, parseVitest } from "./local";
 // VM per (model, task, sample): seeded once, written + built + tested per
 // agentic turn, dumped and destroyed at loop end.
 //
-// Phase A recon (2026-08-24, scripts/probe-*.ts, INNGEST-SANDBOX-BUGS.md)
+// Environment facts from Phase A recon (2026-08-24, INNGEST-SANDBOX-BUGS.md)
 // rewrote the assumptions this runner was originally coded against:
 //
 //   - The beta image is NixOS x86_64 (node 26, wget, tar, gzip; NO curl, NO

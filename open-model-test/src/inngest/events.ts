@@ -7,7 +7,6 @@ export const EVENTS = {
   sampleRequested: "benchmark/task.sample.requested",
   sampleCompleted: "benchmark/sample.completed",
   runCompleted: "benchmark/run.completed",
-  probeExperiment: "omt/probe.experiment",
 } as const;
 
 export const RunRequestedSchema = z

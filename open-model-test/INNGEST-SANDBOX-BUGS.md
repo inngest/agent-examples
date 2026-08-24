@@ -3,9 +3,8 @@
 Environment: Inngest cloud API (`api.inngest.com`), TypeScript SDK **4.18.1**
 (latest as of 2026-08-24), sandbox beta image `default` (NixOS x86_64, kernel
 6.18, node v26.5.0 / npm 11.17.0). Found during the open-model-test demo
-migration (Phase A recon, `scripts/probe-sandbox.ts`,
-`scripts/probe-go-bootstrap.ts`; S4 found post-run via
-`src/inngest/probe-experiment.ts`).
+migration (Phase A recon; S4 found post-run via a diagnostic probe
+function).
 
 ---
 
@@ -110,10 +109,9 @@ op `{name, variant}` that the experiment view joins on. Steps inside the
 variant do carry experiment context in their op `opts` (visible in traces),
 but scores don't.
 
-- Repro: `src/inngest/probe-experiment.ts` — variant "a" of
-  `model-faceoff` scores via `step.score()` (in-variant) and
-  `inngest.score.experiment()` (explicit ref) side by side; only the explicit
-  ref populates the experiment view.
+- Repro: register a variant of `model-faceoff` that scores via
+  `step.score()` (in-variant) and `inngest.score.experiment()` (explicit
+  ref) side by side; only the explicit ref populates the experiment view.
 - Fix is either side: `sendStepScore` includes the ambient
   `execution.experimentContext` in its op, or the docs stop prescribing
   in-callback `step.score()` for experiment attribution.
@@ -122,9 +120,10 @@ but scores don't.
 `inngest.score.experiment({ name, value, experiment: experimentRef })` inside
 a `step.run` (`src/inngest/functions.ts` `attribute-experiment-scores`).
 Historical runs can be backfilled cross-run with the same call plus `runId`
-(`scripts/backfill-scores.ts` — 88/100 samples of run `2026-08-24-493f4f`
-attributed; 12 early runs predate the ~711-event `/v1/events` listing window,
-and no public API lists function runs by function/time, so their run IDs are
+(one-off backfill script, since removed from the repo — 88/100 samples of
+run `2026-08-24-493f4f` attributed; 12 early runs predate the ~711-event
+`/v1/events` listing window, and no public API lists function runs by
+function/time, so their run IDs are
 undiscoverable).
 
 ---
@@ -142,5 +141,5 @@ undiscoverable).
   fit inside 5 min per running sandbox or be re-created.
 
 Bug log maintained in `INNGEST-SANDBOX-BUGS.md`; harness workarounds live in
-`src/sandbox/inngest.ts` and `scripts/probe-*.ts`. Found by the
+`src/sandbox/inngest.ts`. Found by the
 open-model-test benchmark migration (FINDINGS.md, Finding 22 in progress).
