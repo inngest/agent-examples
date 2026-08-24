@@ -386,10 +386,12 @@ async function executeSampleBody(modelId: string, step: Step, data: unknown): Pr
     compiled: row.compiled,
     testsPassed: row.tests_passed,
     testsTotal: row.tests_total,
+    staticPass: row.static_pass,
     turnsToGreen,
     turns: trace.length,
     extracted: trace[trace.length - 1]?.extracted ?? false,
     latencyMs: row.latency_ms,
+    tokensPerSec: row.tokens_per_sec,
     costUsd: row.cost_usd,
   };
 }
@@ -481,12 +483,49 @@ export const executeSample = inngest.createFunction(
 
     // The faceoff: one variant per configured model, deterministic selection
     // from the event. Scores inside the variant attach to it automatically.
-    const { result, variant } = await group.experiment("model-faceoff", {
+    const { result, variant, experimentRef } = await group.experiment("model-faceoff", {
       variants: Object.fromEntries(
         config.models.map((m) => [m.id, () => executeSampleBody(m.id, step, event.data)]),
       ),
       select: experiment.fixed(modelId),
     });
+
+    // SDK 4.18.1 (S4 in INNGEST-SANDBOX-BUGS.md): step.score() inside the
+    // variant callback writes the score value but never the experiment
+    // metadata op, so the Experiments dashboard sees no variant data. The
+    // documented cross-run attribution path — inngest.score.experiment()
+    // with the experimentRef — writes both. Re-emit every metric through it
+    // (idempotent merge by score name) so each variant aggregates in the
+    // dashboard; the step.score() calls above remain for run-trace context.
+    const rowOut = result as {
+      compiled: number | null;
+      testsPassed: number | null;
+      testsTotal: number | null;
+      staticPass: number | null;
+      turnsToGreen: number | null;
+      latencyMs: number | null;
+      tokensPerSec: number | null;
+      costUsd: number | null;
+    };
+    await step.run("attribute-experiment-scores", async () => {
+      const scores: Array<[string, number | boolean]> = [];
+      if (rowOut.compiled !== null) scores.push(["compiled", rowOut.compiled === 1]);
+      const passRate =
+        rowOut.testsTotal !== null && rowOut.testsTotal > 0 && rowOut.testsPassed !== null
+          ? rowOut.testsPassed / rowOut.testsTotal
+          : null;
+      if (passRate !== null) scores.push(["test-pass-rate", passRate]);
+      if (rowOut.staticPass !== null) scores.push(["static-pass", rowOut.staticPass === 1]);
+      if (rowOut.turnsToGreen !== null) scores.push(["turns-to-green", rowOut.turnsToGreen]);
+      if (rowOut.latencyMs !== null) scores.push(["latency-ms", rowOut.latencyMs]);
+      if (rowOut.tokensPerSec !== null) scores.push(["tokens-per-sec", rowOut.tokensPerSec]);
+      if (rowOut.costUsd !== null) scores.push(["cost-usd", rowOut.costUsd]);
+      for (const [name, value] of scores) {
+        await inngest.score.experiment({ name, value, experiment: experimentRef });
+      }
+      return scores.length;
+    });
+
     return { ...result, variant };
   },
 );
@@ -561,4 +600,6 @@ export const aggregateRun = inngest.createFunction(
   },
 );
 
-export const allFunctions = [orchestrateRun, executeSample, tallySamples, aggregateRun];
+import { probeExperiment } from "./probe-experiment";
+
+export const allFunctions = [orchestrateRun, executeSample, tallySamples, aggregateRun, probeExperiment];

@@ -409,11 +409,20 @@ catch and verify by re-download. Plus a client-side `runningTimeout` cap of
 per-model functions merged into a single `execute-sample` where the model is
 a `group.experiment("model-faceoff")` variant — deterministic selection
 (`experiment.fixed(modelId)`) runs exactly the event's model, per-model
-concurrency preserved via a keyed limit, and all seven `step.score()` metrics
-attribute to variants: the dashboard shows both models' score distributions
-on one experiment. The root trigger carries `meta.sessions` =
+concurrency preserved via a keyed limit, and all seven metrics attribute to
+variants: the dashboard shows both models' score distributions on one
+experiment. The root trigger carries `meta.sessions` =
 `benchmark_run:<runId>` and session propagation stamps every child run — the
-whole matrix is one browsable timeline.
+whole matrix is one browsable timeline. *Post-run correction (SDK bug S4,
+INNGEST-SANDBOX-BUGS.md): `step.score()` inside the variant callback writes
+values but never the experiment metadata op — the Experiments dashboard
+showed no variant data. The docs' prescribed in-callback attribution is a
+no-op in SDK 4.18.1. Fix: re-emit every metric after the variant via
+`inngest.score.experiment(experimentRef)` (`attribute-experiment-scores`
+step); the demo run was retro-attributed cross-run with
+`scripts/backfill-scores.ts` — 88/100 samples (12 early runs predate the
+`/v1/events` listing window, ~711 events deep, and no public API lists runs
+by function/time to recover their IDs).*
 
 **e) The beta compute pool exhausted mid-run — and durable replay recovered
 it for $0.** At 8 concurrent sandboxes (concurrency 4+4), 39/100 samples died
