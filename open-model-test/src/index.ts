@@ -12,10 +12,17 @@ import { completionCount, getRun, listRuns } from "./db";
 const app = new Hono();
 
 // Kick off a full matrix run. The runId is generated here (not inside the
-// function) so the response can return it immediately.
+// function) so the response can return it immediately. meta.sessions tags the
+// root event with the benchmark run — session propagation (on by default)
+// stamps every child run (orchestrate, samples, tally, aggregate) with the
+// same session, so the whole benchmark is one timeline in the dashboard.
 app.post("/api/run", async (c) => {
   const runId = `${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 6)}`;
-  await inngest.send({ name: EVENTS.runRequested, data: { runId } });
+  await inngest.send({
+    name: EVENTS.runRequested,
+    data: { runId },
+    meta: { sessions: { benchmark_run: runId } },
+  });
   return c.json({ runId, url: `/runs/${runId}` }, 202);
 });
 

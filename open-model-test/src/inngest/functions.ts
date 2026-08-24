@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { NonRetriableError, slugify } from "inngest";
+import { NonRetriableError, experiment, slugify } from "inngest";
 import { config, PROJECT_ROOT } from "../config";
 import { loadTask, loadTasks } from "../tasks";
 import { createRun, getRun, getResults, markRunStatus, recordCompletion, completionCount, upsertResult } from "../db";
@@ -152,12 +152,15 @@ export const orchestrateRun = inngest.createFunction(
   },
 );
 
-// -- execute-sample (one function per model) ---------------------------------
+// -- execute-sample (one function, models as experiment variants) -------------
 //
-// Generated per config entry (the repo's tool-functions pattern) so each
-// model gets its own concurrency limit — the local/small contender caps at
-// provider capacity, the frontier baseline at API rate limits, independently.
-// The trigger `if` routes each event to exactly one function.
+// A single function for every model in the matrix. The model is a VARIANT of
+// the "model-faceoff" step experiment: selection is deterministic from the
+// event (experiment.fixed(modelId)), so each sample runs exactly its own
+// model's variant, and every step.score() inside the variant callback is
+// attributed to that variant — the dashboard shows both models' score
+// distributions side by side on one experiment. Per-model concurrency is
+// preserved via a keyed limit on event.data.modelId.
 //
 // The body is the spec v2 §7 agentic loop: each turn is a durable step pair
 // (memoized generate → persistent-session apply/evaluate), so a crash or
@@ -396,73 +399,96 @@ function gen_placeholder(trace: TurnTraceEntry[]): string {
   return `[no parseable files in any of ${trace.length} turn(s)]`;
 }
 
-export const sampleFunctions = config.models.map((model) =>
-  inngest.createFunction(
-    {
-      id: `execute-sample-${slugify(model.id)}`,
-      retries: 2,
-      concurrency: { limit: model.concurrency, key: "event.data.modelId" },
-      triggers: [{ event: EVENTS.sampleRequested, if: `event.data.modelId == '${model.id}'` }],
-      // A permanently failed sample must still count toward the tally, or the
-      // run would never complete: record a failure row and emit completion.
-      onFailure: async ({ event, step }) => {
-        const inner = (event.data.event?.data ?? {}) as unknown;
-        const parsed = SampleRequestedSchema.safeParse(inner);
-        if (!parsed.success) {
-          console.error("execute-sample failure without a parseable original event", event.data.error);
-          return;
-        }
-        const { runId, taskId, sample } = parsed.data;
-        const meta = await step.run("resolve-task", async () => {
-          try {
-            const t = loadTask(taskId);
-            return { tier: t.tier, task_type: t.task_type, language: t.language, maxTurns: t.max_agent_turns };
-          } catch {
-            return { tier: "unknown", task_type: "coding", language: "unknown", maxTurns: 1 };
-          }
-        });
-        await step.run("record-failure", () =>
-          upsertResult({
-            run_id: runId,
-            model: model.id,
-            model_params: "{}",
-            task_id: taskId,
-            tier: meta.tier,
-            task_type: meta.task_type,
-            language: meta.language,
-            sample,
-            seed: null,
-            compiled: null,
-            tests_passed: null,
-            tests_total: null,
-            static_pass: null,
-            static_issues: null,
-            turns_to_green: null,
-            max_agent_turns: meta.maxTurns,
-            agent_turns: 0,
-            turns_trace: null,
-            artifacts_ref: null,
-            tokens_prompt: null,
-            tokens_completion: null,
-            ttft_ms: null,
-            tokens_per_sec: null,
-            latency_ms: null,
-            cost_usd: null,
-            judge_score: null,
-            code: null,
-            stdout: null,
-            stderr: null,
-            error: event.data.error?.message ?? "unknown error",
-          }),
-        );
-        await step.sendEvent("emit-sample-completed", {
-          name: EVENTS.sampleCompleted,
-          data: { runId, modelId: model.id, taskId, sample },
-        });
-      },
+export const executeSample = inngest.createFunction(
+  {
+    id: "execute-sample",
+    retries: 2,
+    // Keyed per model: each variant keeps its own lane (provider capacity
+    // for the contender, API rate limits for the baseline), independently.
+    concurrency: {
+      limit: Math.max(...config.models.map((m) => m.concurrency)),
+      key: "event.data.modelId",
     },
-    ({ event, step }) => executeSampleBody(model.id, step, event.data),
-  ),
+    triggers: [{ event: EVENTS.sampleRequested }],
+    // A permanently failed sample must still count toward the tally, or the
+    // run would never complete: record a failure row and emit completion.
+    onFailure: async ({ event, step }) => {
+      const inner = (event.data.event?.data ?? {}) as unknown;
+      const parsed = SampleRequestedSchema.safeParse(inner);
+      if (!parsed.success) {
+        console.error("execute-sample failure without a parseable original event", event.data.error);
+        return;
+      }
+      const { runId, taskId, sample } = parsed.data;
+      const modelId = parsed.data.modelId;
+      const model = config.models.find((m) => m.id === modelId);
+      const meta = await step.run("resolve-task", async () => {
+        try {
+          const t = loadTask(taskId);
+          return { tier: t.tier, task_type: t.task_type, language: t.language, maxTurns: t.max_agent_turns };
+        } catch {
+          return { tier: "unknown", task_type: "coding", language: "unknown", maxTurns: 1 };
+        }
+      });
+      await step.run("record-failure", () =>
+        upsertResult({
+          run_id: runId,
+          model: model?.id ?? modelId,
+          model_params: "{}",
+          task_id: taskId,
+          tier: meta.tier,
+          task_type: meta.task_type,
+          language: meta.language,
+          sample,
+          seed: null,
+          compiled: null,
+          tests_passed: null,
+          tests_total: null,
+          static_pass: null,
+          static_issues: null,
+          turns_to_green: null,
+          max_agent_turns: meta.maxTurns,
+          agent_turns: 0,
+          turns_trace: null,
+          artifacts_ref: null,
+          tokens_prompt: null,
+          tokens_completion: null,
+          ttft_ms: null,
+          tokens_per_sec: null,
+          latency_ms: null,
+          cost_usd: null,
+          judge_score: null,
+          code: null,
+          stdout: null,
+          stderr: null,
+          error: event.data.error?.message ?? "unknown error",
+        }),
+      );
+      await step.sendEvent("emit-sample-completed", {
+        name: EVENTS.sampleCompleted,
+        data: { runId, modelId, taskId, sample },
+      });
+    },
+  },
+  async ({ event, step, group }) => {
+    const parsed = SampleRequestedSchema.safeParse(event.data ?? {});
+    if (!parsed.success) {
+      throw new NonRetriableError(`invalid sample event: ${parsed.error.message}`);
+    }
+    const modelId = parsed.data.modelId;
+    const model = config.models.find((m) => m.id === modelId);
+    if (!model) throw new NonRetriableError(`unknown model: ${modelId}`);
+
+    // The faceoff: one variant per configured model, deterministic selection
+    // from the event. Scores inside the variant attach to it automatically.
+    const { result, variant } = await group.experiment("model-faceoff", {
+      variants: Object.fromEntries(
+        config.models.map((m) => [m.id, () => executeSampleBody(m.id, step, event.data)]),
+      ),
+      select: experiment.fixed(modelId),
+    });
+    return { ...result, variant };
+  },
 );
 
 // -- tally-samples ------------------------------------------------------------
@@ -535,4 +561,4 @@ export const aggregateRun = inngest.createFunction(
   },
 );
 
-export const allFunctions = [orchestrateRun, ...sampleFunctions, tallySamples, aggregateRun];
+export const allFunctions = [orchestrateRun, executeSample, tallySamples, aggregateRun];

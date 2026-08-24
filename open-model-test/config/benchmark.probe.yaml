@@ -1,0 +1,65 @@
+run:
+  # Phase C cloud smoke (demo migration): M3 only x one Go task x k=1.
+  # Validates the full cloud path end-to-end — sandbox creation, files-API Go
+  # bootstrap, experiment variant, scores, session timeline — for ~$0.001 of
+  # model spend before the full demo matrix runs.
+  k_samples: 1
+  seed_policy: vary # deterministic per (run, model, task, sample)
+  tasks: [go-t1-001]
+
+models:
+  # Contender (spec v3): MiniMax M3, served in FP8 on Nebius Token Factory's
+  # OpenAI-compatible API. The identity string encodes provider + served
+  # precision (spec v3 §10) and is recorded verbatim in every result row.
+  - id: minimax-m3-fp8-nebius
+    adapter: openai_compat
+    endpoint: ${NEBIUS_BASE_URL}
+    api_key_env: NEBIUS_API_KEY
+    # Confirmed at Δ1 (2026-08-21, GET /v1/models): the org prefix is
+    # MiniMaxAI, not MiniMax (the OpenRouter spelling). Exactly one M3
+    # variant is served — no precision-variant model strings — so the fp8
+    # in the id comes from Nebius's model card, not a variant slug.
+    model: MiniMaxAI/MiniMax-M3
+    concurrency: 4 # Δ3-confirmed (2026-08-21): 12-parallel probe, no 429s, no
+    # TTFT inflation — ~3x demonstrated headroom. The x-ratelimit-* headers
+    # Nebius documents are absent from responses (Finding 18).
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      # Same output budget as the baseline — a cap difference would be an
+      # unfair confound (a truncated solution fails the compile gate).
+      max_tokens: 8192
+      # Thinking toggle (spec v3 §7): pinned ONCE by the Δ4 A/A run
+      # (2026-08-21-9658e7, Finding 20): OFF. Data: thinking-on costs 3.4×
+      # latency / 3.7× $ per sample and systematically dies on T3 — 4/4
+      # samples hit the shared 8192 budget with reasoning only, zero
+      # content, ~$0.01 each for guaranteed compile-fails. The equal-budget
+      # rule is protocol (v2 Finding 5), so budget starvation is a real
+      # failure under this harness, not an artifact. Recorded on every row.
+      thinking: false
+    # Δ2-pinned (2026-08-21): $0.30/$1.20 per Mtok — the Nebius rate-card
+    # price, corroborated by two independent Nebius-specific price trackers
+    # (typingmind's Nebius calculator, whichllm's MiniMaxAI/MiniMax-M3 page)
+    # and consistent with the first-party cluster price in Finding 14.
+    # Nebius's public docs don't expose per-model pricing (console login
+    # required) — provenance disclosed; the first billed run cross-checks.
+    # Standard tier — the tasks never approach the 512K long-context tier
+    # (spec v3 §8.5).
+    pricing:
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
+
+
+prompting:
+  # Identical across models — this exact string is recorded with every run.
+  # {entrypoint} is replaced with the task's entrypoint filename (coding
+  # tasks) or a generic phrase (agentic tasks).
+  system: "You are a Go coding assistant. Return code changes only."
+  user_suffix: |
+    Write the complete contents of {entrypoint}. Put the code in a single fenced code block. Do not include any other files.
+  # file_format / fix_suffix (the agentic multi-file marker contract and the
+  # fix-turn instruction) default from src/config.ts and are recorded per run.
+
+sandbox:
+  runner: inngest
+  default_timeout_seconds: 60
