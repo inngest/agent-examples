@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 0,
+    "testsTotal": 1,
+    "green": false,
+    "tokensPrompt": 399,
+    "tokensCompletion": 449,
+    "latencyMs": 24212,
+    "costUsd": 0.0006585,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\nok  \tslug\t0.002s [no tests to run]\n\n$ go test ./... -json\n{\"Time\":\"2026-08-21T22:53:44.765906087Z\",\"Action\":\"start\",\"Package\":\"slug\"}\n{\"Time\":\"2026-08-21T22:53:44.767688659Z\",\"Action\":\"run\",\"Package\":\"slug\",\"Test\":\"TestSlugify\"}\n{\"Time\":\"2026-08-21T22:53:44.768202099Z\",\"Action\":\"output\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Output\":\"=== RUN   TestSlugify\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:44.768246519Z\",\"Action\":\"output\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Output\":\"    slug_test.go:30: Slugify(\\\"  Multiple   Spaces  \\\") = \\\"-multiple-spaces\\\", want \\\"multiple-spaces\\\"\\n\",\"OutputType\":\"error\"}\n{\"Time\":\"2026-08-21T22:53:44.768253389Z\",\"Action\":\"output\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Output\":\"    slug_test.go:30: Slugify(\\\"-leading and trailing-\\\") = \\\"-leading-and-trailing\\\", want \\\"leading-and-trailing\\\"\\n\",\"OutputType\":\"error\"}\n{\"Time\":\"2026-08-21T22:53:44.768256449Z\",\"Action\":\"output\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Output\":\"    slug_test.go:30: Slugify(\\\"日本語 text\\\") = \\\"-text\\\", want \\\"text\\\"\\n\",\"OutputType\":\"error\"}\n{\"Time\":\"2026-08-21T22:53:44.768262429Z\",\"Action\":\"output\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Output\":\"--- FAIL: TestSlugify (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:44.768265519Z\",\"Action\":\"fail\",\"Package\":\"slug\",\"Test\":\"TestSlugify\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:53:44.768269899Z\",\"Action\":\"output\",\"Package\":\"slug\",\"Output\":\"FAIL\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:44.768497019Z\",\"Action\":\"output\",\"Package\":\"slug\",\"Output\":\"FAIL\\tslug\\t0.002s\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:44.768509669Z\",\"Action\":\"fail\",\"Package\":\"slug\",\"Elapsed\":0.003}\n\n",
+    "stderrExcerpt": ""
+  }
+]

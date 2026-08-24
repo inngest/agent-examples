@@ -1,0 +1,34 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 4,
+    "testsTotal": 6,
+    "green": false,
+    "tokensPrompt": 886,
+    "tokensCompletion": 478,
+    "latencyMs": 2113,
+    "costUsd": 0.0008393999999999999,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "ASS: TestNoTrimFromEnv (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:35.214449951Z\",\"Action\":\"pass\",\"Package\":\"example.com/conf\",\"Test\":\"TestNoTrimFromEnv\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:35.214452131Z\",\"Action\":\"run\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\"}\n{\"Time\":\"2026-08-21T22:58:35.214461642Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\",\"Output\":\"=== RUN   TestEmptyInputs\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:35.214467171Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\",\"Output\":\"--- PASS: TestEmptyInputs (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:35.214469482Z\",\"Action\":\"pass\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:35.214471631Z\",\"Action\":\"run\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\"}\n{\"Time\":\"2026-08-21T22:58:35.214473842Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\",\"Output\":\"=== RUN   TestEmptyStringOverride\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:35.214476731Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\",\"Output\":\"    conf_test.go:79: APP_K= must override with empty string: got \\\"filevalue\\\" (present=true)\\n\",\"OutputType\":\"error\"}\n{\"Time\":\"2026-08-21T22:58:35.214480562Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\",\"Output\":\"--- FAIL: TestEmptyStringOverride (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:35.214482882Z\",\"Action\":\"fail\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:35.214485282Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Output\":\"FAIL\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:35.215003892Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Output\":\"FAIL\\texample.com/conf\\t0.002s\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:35.215029482Z\",\"Action\":\"fail\",\"Package\":\"example.com/conf\",\"Elapsed\":0.002}\n\n",
+    "stderrExcerpt": ""
+  },
+  {
+    "turn": 2,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 6,
+    "testsTotal": 6,
+    "green": true,
+    "tokensPrompt": 3035,
+    "tokensCompletion": 1145,
+    "latencyMs": 5489,
+    "costUsd": 0.0022845,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "4Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestNoTrimFromEnv\",\"Output\":\"=== RUN   TestNoTrimFromEnv\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.439131784Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestNoTrimFromEnv\",\"Output\":\"--- PASS: TestNoTrimFromEnv (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.439134314Z\",\"Action\":\"pass\",\"Package\":\"example.com/conf\",\"Test\":\"TestNoTrimFromEnv\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:45.439136484Z\",\"Action\":\"run\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\"}\n{\"Time\":\"2026-08-21T22:58:45.439138464Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\",\"Output\":\"=== RUN   TestEmptyInputs\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.439144134Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\",\"Output\":\"--- PASS: TestEmptyInputs (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.439427694Z\",\"Action\":\"pass\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyInputs\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:45.439437884Z\",\"Action\":\"run\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\"}\n{\"Time\":\"2026-08-21T22:58:45.439440984Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\",\"Output\":\"=== RUN   TestEmptyStringOverride\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.439447504Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\",\"Output\":\"--- PASS: TestEmptyStringOverride (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.439452254Z\",\"Action\":\"pass\",\"Package\":\"example.com/conf\",\"Test\":\"TestEmptyStringOverride\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:45.439455064Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.439733084Z\",\"Action\":\"output\",\"Package\":\"example.com/conf\",\"Output\":\"ok  \\texample.com/conf\\t0.002s\\n\"}\n{\"Time\":\"2026-08-21T22:58:45.440292984Z\",\"Action\":\"pass\",\"Package\":\"example.com/conf\",\"Elapsed\":0.003}\n\n",
+    "stderrExcerpt": ""
+  }
+]

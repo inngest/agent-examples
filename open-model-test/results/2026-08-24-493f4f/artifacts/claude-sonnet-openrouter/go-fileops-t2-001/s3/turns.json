@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 5,
+    "testsTotal": 5,
+    "green": true,
+    "tokensPrompt": 786,
+    "tokensCompletion": 345,
+    "latencyMs": 4934,
+    "costUsd": 0.005022,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "51.246346046Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Test\":\"TestKeysIsolated\",\"Output\":\"=== RUN   TestKeysIsolated\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:51.246374296Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Test\":\"TestKeysIsolated\",\"Output\":\"--- PASS: TestKeysIsolated (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:51.246469046Z\",\"Action\":\"pass\",\"Package\":\"example.com/loader\",\"Test\":\"TestKeysIsolated\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:51.246478676Z\",\"Action\":\"run\",\"Package\":\"example.com/loader\",\"Test\":\"TestNilSource\"}\n{\"Time\":\"2026-08-21T22:58:51.246482246Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Test\":\"TestNilSource\",\"Output\":\"=== RUN   TestNilSource\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:51.246486946Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Test\":\"TestNilSource\",\"Output\":\"--- PASS: TestNilSource (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:51.246489766Z\",\"Action\":\"pass\",\"Package\":\"example.com/loader\",\"Test\":\"TestNilSource\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:51.246492726Z\",\"Action\":\"run\",\"Package\":\"example.com/loader\",\"Test\":\"TestDistinctLoaders\"}\n{\"Time\":\"2026-08-21T22:58:51.246494936Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Test\":\"TestDistinctLoaders\",\"Output\":\"=== RUN   TestDistinctLoaders\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:51.246498046Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Test\":\"TestDistinctLoaders\",\"Output\":\"--- PASS: TestDistinctLoaders (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:51.246505616Z\",\"Action\":\"pass\",\"Package\":\"example.com/loader\",\"Test\":\"TestDistinctLoaders\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:51.246507626Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:51.246729147Z\",\"Action\":\"output\",\"Package\":\"example.com/loader\",\"Output\":\"ok  \\texample.com/loader\\t0.003s\\n\"}\n{\"Time\":\"2026-08-21T22:58:51.247548917Z\",\"Action\":\"pass\",\"Package\":\"example.com/loader\",\"Elapsed\":0.004}\n\n",
+    "stderrExcerpt": ""
+  }
+]

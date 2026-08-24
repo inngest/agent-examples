@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 10,
+    "testsTotal": 10,
+    "green": true,
+    "tokensPrompt": 905,
+    "tokensCompletion": 1113,
+    "latencyMs": 7638,
+    "costUsd": 0.0016071,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "TestUnsubscribe\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:23.848247455Z\",\"Action\":\"output\",\"Package\":\"example.com/bus\",\"Test\":\"TestUnsubscribe\",\"Output\":\"--- PASS: TestUnsubscribe (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:23.848249685Z\",\"Action\":\"pass\",\"Package\":\"example.com/bus\",\"Test\":\"TestUnsubscribe\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:53:23.848251715Z\",\"Action\":\"run\",\"Package\":\"example.com/bus\",\"Test\":\"TestUnsubscribeOnlyOwnSubscription\"}\n{\"Time\":\"2026-08-21T22:53:23.848253825Z\",\"Action\":\"output\",\"Package\":\"example.com/bus\",\"Test\":\"TestUnsubscribeOnlyOwnSubscription\",\"Output\":\"=== RUN   TestUnsubscribeOnlyOwnSubscription\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:23.848256535Z\",\"Action\":\"output\",\"Package\":\"example.com/bus\",\"Test\":\"TestUnsubscribeOnlyOwnSubscription\",\"Output\":\"--- PASS: TestUnsubscribeOnlyOwnSubscription (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:23.848258755Z\",\"Action\":\"pass\",\"Package\":\"example.com/bus\",\"Test\":\"TestUnsubscribeOnlyOwnSubscription\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:53:23.848260835Z\",\"Action\":\"run\",\"Package\":\"example.com/bus\",\"Test\":\"TestNilSubscriberIgnored\"}\n{\"Time\":\"2026-08-21T22:53:23.848262695Z\",\"Action\":\"output\",\"Package\":\"example.com/bus\",\"Test\":\"TestNilSubscriberIgnored\",\"Output\":\"=== RUN   TestNilSubscriberIgnored\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:23.848267595Z\",\"Action\":\"output\",\"Package\":\"example.com/bus\",\"Test\":\"TestNilSubscriberIgnored\",\"Output\":\"--- PASS: TestNilSubscriberIgnored (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:23.848269795Z\",\"Action\":\"pass\",\"Package\":\"example.com/bus\",\"Test\":\"TestNilSubscriberIgnored\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:53:23.848271725Z\",\"Action\":\"output\",\"Package\":\"example.com/bus\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:53:23.848384345Z\",\"Action\":\"output\",\"Package\":\"example.com/bus\",\"Output\":\"ok  \\texample.com/bus\\t0.002s\\n\"}\n{\"Time\":\"2026-08-21T22:53:23.848857686Z\",\"Action\":\"pass\",\"Package\":\"example.com/bus\",\"Elapsed\":0.003}\n\n",
+    "stderrExcerpt": ""
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 3,
+    "testsTotal": 3,
+    "green": true,
+    "tokensPrompt": 471,
+    "tokensCompletion": 712,
+    "latencyMs": 10602,
+    "costUsd": 0.0009957,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "08-21T22:58:45.562549869Z\",\"Action\":\"run\",\"Package\":\"interval\",\"Test\":\"TestNormalize\"}\n{\"Time\":\"2026-08-21T22:58:45.562593939Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Test\":\"TestNormalize\",\"Output\":\"=== RUN   TestNormalize\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.562610799Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Test\":\"TestNormalize\",\"Output\":\"--- PASS: TestNormalize (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.562615299Z\",\"Action\":\"pass\",\"Package\":\"interval\",\"Test\":\"TestNormalize\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:45.562620229Z\",\"Action\":\"run\",\"Package\":\"interval\",\"Test\":\"TestNormalizeDoesNotMutate\"}\n{\"Time\":\"2026-08-21T22:58:45.562622339Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Test\":\"TestNormalizeDoesNotMutate\",\"Output\":\"=== RUN   TestNormalizeDoesNotMutate\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.562627069Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Test\":\"TestNormalizeDoesNotMutate\",\"Output\":\"--- PASS: TestNormalizeDoesNotMutate (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.562630459Z\",\"Action\":\"pass\",\"Package\":\"interval\",\"Test\":\"TestNormalizeDoesNotMutate\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:45.562632629Z\",\"Action\":\"run\",\"Package\":\"interval\",\"Test\":\"TestTotalLength\"}\n{\"Time\":\"2026-08-21T22:58:45.562634979Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Test\":\"TestTotalLength\",\"Output\":\"=== RUN   TestTotalLength\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.562862999Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Test\":\"TestTotalLength\",\"Output\":\"--- PASS: TestTotalLength (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.562879389Z\",\"Action\":\"pass\",\"Package\":\"interval\",\"Test\":\"TestTotalLength\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:45.562882019Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:45.56322729Z\",\"Action\":\"output\",\"Package\":\"interval\",\"Output\":\"ok  \\tinterval\\t0.002s\\n\"}\n{\"Time\":\"2026-08-21T22:58:45.56365647Z\",\"Action\":\"pass\",\"Package\":\"interval\",\"Elapsed\":0.003}\n\n",
+    "stderrExcerpt": ""
+  }
+]

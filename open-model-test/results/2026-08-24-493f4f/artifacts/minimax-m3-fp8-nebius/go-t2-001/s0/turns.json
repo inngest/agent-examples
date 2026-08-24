@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 12,
+    "testsTotal": 12,
+    "green": true,
+    "tokensPrompt": 640,
+    "tokensCompletion": 537,
+    "latencyMs": 2442,
+    "costUsd": 0.0008364000000000001,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "46.632547115Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Test\":\"TestHistoryCommitOrder\",\"Output\":\"=== RUN   TestHistoryCommitOrder\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:46.632549725Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Test\":\"TestHistoryCommitOrder\",\"Output\":\"--- PASS: TestHistoryCommitOrder (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:46.632551755Z\",\"Action\":\"pass\",\"Package\":\"ledger\",\"Test\":\"TestHistoryCommitOrder\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:46.632553595Z\",\"Action\":\"run\",\"Package\":\"ledger\",\"Test\":\"TestHistoryReturnsCopy\"}\n{\"Time\":\"2026-08-21T22:58:46.632555325Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Test\":\"TestHistoryReturnsCopy\",\"Output\":\"=== RUN   TestHistoryReturnsCopy\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:46.632557725Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Test\":\"TestHistoryReturnsCopy\",\"Output\":\"--- PASS: TestHistoryReturnsCopy (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:46.632559835Z\",\"Action\":\"pass\",\"Package\":\"ledger\",\"Test\":\"TestHistoryReturnsCopy\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:46.632564825Z\",\"Action\":\"run\",\"Package\":\"ledger\",\"Test\":\"TestExactZeroBalanceAfterWithdrawal\"}\n{\"Time\":\"2026-08-21T22:58:46.632567615Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Test\":\"TestExactZeroBalanceAfterWithdrawal\",\"Output\":\"=== RUN   TestExactZeroBalanceAfterWithdrawal\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:46.632570995Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Test\":\"TestExactZeroBalanceAfterWithdrawal\",\"Output\":\"--- PASS: TestExactZeroBalanceAfterWithdrawal (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:46.632573665Z\",\"Action\":\"pass\",\"Package\":\"ledger\",\"Test\":\"TestExactZeroBalanceAfterWithdrawal\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:46.632575995Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:46.633150745Z\",\"Action\":\"output\",\"Package\":\"ledger\",\"Output\":\"ok  \\tledger\\t0.002s\\n\"}\n{\"Time\":\"2026-08-21T22:58:46.633608366Z\",\"Action\":\"pass\",\"Package\":\"ledger\",\"Elapsed\":0.003}\n\n",
+    "stderrExcerpt": ""
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 8,
+    "testsTotal": 8,
+    "green": true,
+    "tokensPrompt": 902,
+    "tokensCompletion": 503,
+    "latencyMs": 2873,
+    "costUsd": 0.0008741999999999999,
+    "reasoningChars": 0,
+    "stdoutExcerpt": ",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:52:56.411587863Z\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\"}\n{\"Time\":\"2026-08-21T22:52:56.411675723Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Output\":\"=== RUN   TestNilCtx\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:52:56.411771363Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Output\":\"--- PASS: TestNilCtx (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:52:56.412431944Z\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestNilCtx\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:52:56.412443044Z\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\"}\n{\"Time\":\"2026-08-21T22:52:56.412448074Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Output\":\"=== RUN   TestEmptyChain\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:52:56.412457584Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Output\":\"--- PASS: TestEmptyChain (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:52:56.412462544Z\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestEmptyChain\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:52:56.412466954Z\",\"Action\":\"run\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\"}\n{\"Time\":\"2026-08-21T22:52:56.412470534Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Output\":\"=== RUN   TestReuse\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:52:56.412476924Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Output\":\"--- PASS: TestReuse (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:52:56.412481344Z\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Test\":\"TestReuse\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:52:56.412485454Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:52:56.412527514Z\",\"Action\":\"output\",\"Package\":\"example.com/mw\",\"Output\":\"ok  \\texample.com/mw\\t0.004s\\n\"}\n{\"Time\":\"2026-08-21T22:52:56.413375105Z\",\"Action\":\"pass\",\"Package\":\"example.com/mw\",\"Elapsed\":0.005}\n\n",
+    "stderrExcerpt": ""
+  }
+]

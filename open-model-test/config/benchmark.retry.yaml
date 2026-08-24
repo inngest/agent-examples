@@ -1,0 +1,85 @@
+run:
+  k_samples: 5 # samples per task for pass@k + variance
+  seed_policy: vary # vary seeds across samples (deterministic per (run, model, task, sample))
+
+models:
+  # Contender (spec v3): MiniMax M3, served in FP8 on Nebius Token Factory's
+  # OpenAI-compatible API. The identity string encodes provider + served
+  # precision (spec v3 §10) and is recorded verbatim in every result row.
+  - id: minimax-m3-fp8-nebius
+    adapter: openai_compat
+    endpoint: ${NEBIUS_BASE_URL}
+    api_key_env: NEBIUS_API_KEY
+    # Confirmed at Δ1 (2026-08-21, GET /v1/models): the org prefix is
+    # MiniMaxAI, not MiniMax (the OpenRouter spelling). Exactly one M3
+    # variant is served — no precision-variant model strings — so the fp8
+    # in the id comes from Nebius's model card, not a variant slug.
+    model: MiniMaxAI/MiniMax-M3
+    concurrency: 1 # Δ3-confirmed (2026-08-21): 12-parallel probe, no 429s, no
+    # TTFT inflation — ~3x demonstrated headroom. The x-ratelimit-* headers
+    # Nebius documents are absent from responses (Finding 18).
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      # Same output budget as the baseline — a cap difference would be an
+      # unfair confound (a truncated solution fails the compile gate).
+      max_tokens: 8192
+      # Thinking toggle (spec v3 §7): pinned ONCE by the Δ4 A/A run
+      # (2026-08-21-9658e7, Finding 20): OFF. Data: thinking-on costs 3.4×
+      # latency / 3.7× $ per sample and systematically dies on T3 — 4/4
+      # samples hit the shared 8192 budget with reasoning only, zero
+      # content, ~$0.01 each for guaranteed compile-fails. The equal-budget
+      # rule is protocol (v2 Finding 5), so budget starvation is a real
+      # failure under this harness, not an artifact. Recorded on every row.
+      thinking: false
+    # Δ2-pinned (2026-08-21): $0.30/$1.20 per Mtok — the Nebius rate-card
+    # price, corroborated by two independent Nebius-specific price trackers
+    # (typingmind's Nebius calculator, whichllm's MiniMaxAI/MiniMax-M3 page)
+    # and consistent with the first-party cluster price in Finding 14.
+    # Nebius's public docs don't expose per-model pricing (console login
+    # required) — provenance disclosed; the first billed run cross-checks.
+    # Standard tier — the tasks never approach the 512K long-context tier
+    # (spec v3 §8.5).
+    pricing:
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
+
+  # Baseline: Sonnet, routed via OpenRouter. Spec v3 §11 sketched a direct
+  # Anthropic adapter; keeping the baseline on the same OpenAI-compatible
+  # protocol preserves v2's comparability and the committed run history —
+  # a disclosed deviation, see README design notes.
+  - id: claude-sonnet-openrouter
+    adapter: openrouter
+    # Δ2-pinned snapshot slug (2026-08-21): the OpenRouter endpoints API
+    # shows all 9 backing providers serving exactly this dated snapshot.
+    # The alias would silently track whatever Anthropic ships next; the
+    # dated slug can't drift (spec v3 §15 open decision #2, resolved).
+    model: anthropic/claude-sonnet-5-20260630
+    concurrency: 1
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      max_tokens: 8192
+    pricing: # USD per 1M tokens, from OpenRouter's pricing API (pinned 2026-08-17; re-verified 2026-08-21 — $2.00/$10.00 on 6/9 endpoints, $2.20/$11.00 on the rest; the reported per-generation cost stays authoritative)
+      input_per_mtok: 2.00
+      output_per_mtok: 10.00
+
+prompting:
+  # Identical across models — this exact string is recorded with every run.
+  # {entrypoint} is replaced with the task's entrypoint filename (coding
+  # tasks) or a generic phrase (agentic tasks).
+  system: "You are a Go coding assistant. Return code changes only."
+  user_suffix: |
+    Write the complete contents of {entrypoint}. Put the code in a single fenced code block. Do not include any other files.
+  # file_format / fix_suffix (the agentic multi-file marker contract and the
+  # fix-turn instruction) default from src/config.ts and are recorded per run.
+
+# Replay config (Finding 22): identical matrix, concurrency 1 per model —
+# the beta compute pool exhausted at 8 concurrent sandboxes (39/100 samples
+# died at create with compute_unavailable; zero model spend lost).
+sandbox:
+  # Demo config: identical pins to benchmark.yaml, but execution is isolated
+  # in Inngest Sandboxes (cloud) — Go toolchain ships per-VM via the files
+  # API (hermetic VPC, no egress; see INNGEST-SANDBOX-BUGS.md).
+  runner: inngest
+  default_timeout_seconds: 60

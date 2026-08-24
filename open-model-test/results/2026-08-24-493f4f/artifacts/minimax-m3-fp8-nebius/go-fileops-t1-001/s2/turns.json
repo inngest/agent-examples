@@ -1,0 +1,50 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 673,
+    "tokensCompletion": 8192,
+    "latencyMs": 180409,
+    "costUsd": 0.0100323,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# example.com/strkit\n./truncate.go:1264:43: syntax error: unexpected newline in parameter list; possibly missing comma or )\n\n"
+  },
+  {
+    "turn": 2,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 2853,
+    "tokensCompletion": 155,
+    "latencyMs": 30084,
+    "costUsd": 0.0010419000000000001,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# example.com/strkit\n./truncate.go:26:1: syntax error: non-declaration statement outside function body\n\n"
+  },
+  {
+    "turn": 3,
+    "extracted": true,
+    "parseError": null,
+    "compiled": false,
+    "testsPassed": null,
+    "testsTotal": null,
+    "green": false,
+    "tokensPrompt": 942,
+    "tokensCompletion": 155,
+    "latencyMs": 21903,
+    "costUsd": 0.0004686,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "",
+    "stderrExcerpt": "$ go build ./... && go test -run '^$' -count=1 ./...\n# example.com/strkit\n./truncate.go:26:1: syntax error: non-declaration statement outside function body\n\n"
+  }
+]

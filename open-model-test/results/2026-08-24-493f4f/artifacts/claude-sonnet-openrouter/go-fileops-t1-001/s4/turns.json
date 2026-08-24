@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 4,
+    "testsTotal": 4,
+    "green": true,
+    "tokensPrompt": 773,
+    "tokensCompletion": 222,
+    "latencyMs": 3924,
+    "costUsd": 0.003766,
+    "reasoningChars": 0,
+    "stdoutExcerpt": "\":\"example.com/strkit\",\"Test\":\"TestTruncateRunes\",\"Output\":\"=== RUN   TestTruncateRunes\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:47.567754822Z\",\"Action\":\"output\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateRunes\",\"Output\":\"--- PASS: TestTruncateRunes (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:47.567757202Z\",\"Action\":\"pass\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateRunes\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:47.567759892Z\",\"Action\":\"run\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateEdges\"}\n{\"Time\":\"2026-08-21T22:58:47.567761762Z\",\"Action\":\"output\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateEdges\",\"Output\":\"=== RUN   TestTruncateEdges\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:47.567764512Z\",\"Action\":\"output\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateEdges\",\"Output\":\"--- PASS: TestTruncateEdges (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:47.567767022Z\",\"Action\":\"pass\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateEdges\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:47.567769272Z\",\"Action\":\"run\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateValidUTF8\"}\n{\"Time\":\"2026-08-21T22:58:47.567771372Z\",\"Action\":\"output\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateValidUTF8\",\"Output\":\"=== RUN   TestTruncateValidUTF8\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:47.567775012Z\",\"Action\":\"output\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateValidUTF8\",\"Output\":\"--- PASS: TestTruncateValidUTF8 (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:47.567783322Z\",\"Action\":\"pass\",\"Package\":\"example.com/strkit\",\"Test\":\"TestTruncateValidUTF8\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:47.567785682Z\",\"Action\":\"output\",\"Package\":\"example.com/strkit\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:47.567812952Z\",\"Action\":\"output\",\"Package\":\"example.com/strkit\",\"Output\":\"ok  \\texample.com/strkit\\t0.002s\\n\"}\n{\"Time\":\"2026-08-21T22:58:47.568361422Z\",\"Action\":\"pass\",\"Package\":\"example.com/strkit\",\"Elapsed\":0.003}\n\n",
+    "stderrExcerpt": ""
+  }
+]

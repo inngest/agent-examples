@@ -1,13 +1,15 @@
 # Test Findings — open-model-test
 
 Reference notes for the article. Everything below is from verified runs, with
-raw data in `results/<run_id>/`. Last updated: 2026-08-21 (Δ1–Δ5 passed —
-Nebius live with corrected model string/thinking wire/metric semantics; pins
-in (Sonnet dated slug, M3 $0.30/$1.20); thinking pinned **off** (Finding 20);
-full matrix `2026-08-21-c2ef21` on a clean stamp: **M3 90% pass@k / 92.7%
-mean pass rate vs Sonnet 100% / 100%, at 7.3% of the total spend ($0.12 vs
-$1.67), 11.6% per green sample** — Finding 21. The gap is one task, one
-deterministic grammar edge. Δ6 reporting remains).
+raw data in `results/<run_id>/`. Last updated: 2026-08-24 (Δ1–Δ5 passed on the
+local runner — Finding 21: M3 90% pass@k at 7.3% of Sonnet's spend, gap = one
+deterministic T3 grammar edge. **Demo migration complete (Finding 22):** the
+full matrix now runs entirely on Inngest Cloud — durable functions, sandbox
+execution with a files-API Go-toolchain bootstrap (hermetic VPC, three SDK
+bugs worked around, logged in INNGEST-SANDBOX-BUGS.md), scores attributed to
+`group.experiment("model-faceoff")` variants, one session timeline per run;
+beta compute exhaustion mid-run recovered by durable replay at zero model
+cost. Δ6 reporting remains).
 
 ## v3 reframe — M3 (Nebius) vs Sonnet (2026-08-20; engineering state)
 
@@ -368,6 +370,103 @@ Task-level greens (M3 / Sonnet, of 5): fileops-t1 3/5·5, fileops-t2-001
 go-t1-001 4/5·5, go-t1-002 3/5·5, go-t2-001 1/5·5, go-t2-002 5/5·5,
 go-t3-001 0/5·5. Raw: `results/2026-08-21-c2ef21/{rows,summary}.json`.
 
+### Finding 22 — the demo migration: hermetic VMs, three SDK bugs, and a toolchain in a tarball (2026-08-24, run `2026-08-24-493f4f`)
+
+The Inngest-product-demo repositioning: every run through Inngest functions,
+every result scored and experiment-attributed in the cloud dashboard, and all
+compilation inside Inngest Sandboxes. Phase A recon rewrote the plan's
+assumptions before any model spend:
+
+**a) The sandbox VPC is fully hermetic — no DNS, no egress at all.** Every
+DNS lookup fails `EAI_AGAIN` (including api.inngest.com; resolv.conf points
+at a dead 10.0.0.1), and raw TCP to public IPs returns `ENETUNREACH`
+(8.8.8.8:53, 1.1.1.1:443, go.dev's IP). The original bootstrap plan — wget
+the Go tarball inside the VM — was impossible. The **files API is the only
+ingress**: the worker downloads the pinned go1.27.0 linux-amd64 tarball once
+(sha256-verified in `.cache/`), then ships 70.5 MB per sandbox (~11.5 s),
+untars to `/root/omt-go` (~2 s), and runs everything with `GOCACHE`/`GOPATH`
+under `/root` and `GOTOOLCHAIN=local`. Offline compile verified in a throwaway
+VM before the harness changed (`scripts/probe-upload-toolchain.ts`).
+
+**b) The image: NixOS x86_64, node 26, no curl, no Go, no `/workspace`.**
+wget/tar/gzip present, runs as root, ~9.7 GB disk. No Go toolchain (expected
+— Node/Python/Ruby image), so "installing the Go runtime" means bringing our
+own through the front door. `/workspace` doesn't exist until we mkdir it —
+and an exec whose `cwd` points at a missing dir 400s with a misleading
+`invalid_field_format` (bug S3).
+
+**c) Three SDK 4.18.1 bugs (all latest-version) now shape the runner —
+logged in `INNGEST-SANDBOX-BUGS.md`.** S1: the server omits empty
+stdout/stderr from exec results but the client requires both, so *any*
+command leaving a stream empty throws — the direct client **and** the durable
+`step.sandbox` path both hit it; every command is now wrapped to emit on both
+streams with markers preserving the real exit code. S2: `files.upload`
+succeeds then throws (server returns `bytesWritten` as a string); uploads
+catch and verify by re-download. Plus a client-side `runningTimeout` cap of
+300 s the old runner exceeded at create. Workarounds: `src/sandbox/inngest.ts`.
+
+**d) One function, two experiment variants, one session timeline.** The two
+per-model functions merged into a single `execute-sample` where the model is
+a `group.experiment("model-faceoff")` variant — deterministic selection
+(`experiment.fixed(modelId)`) runs exactly the event's model, per-model
+concurrency preserved via a keyed limit, and all seven `step.score()` metrics
+attribute to variants: the dashboard shows both models' score distributions
+on one experiment. The root trigger carries `meta.sessions` =
+`benchmark_run:<runId>` and session propagation stamps every child run — the
+whole matrix is one browsable timeline.
+
+**e) The beta compute pool exhausted mid-run — and durable replay recovered
+it for $0.** At 8 concurrent sandboxes (concurrency 4+4), 39/100 samples died
+at sandbox-create with `compute_unavailable`. Because create fails *before*
+generation, no model spend was lost. `scripts/replay-failed.ts` re-sent the
+exact `(runId, model, task, sample, seed)` tuples — results upsert, the
+completions tally is idempotent, `scripts/reaggregate.ts` re-triggered
+aggregation — the same run ID completed with merged history. The failure and
+its recovery are themselves the durable-execution demo.
+
+**f) Two live-runner bugs the smoke run caught (both harness, fixed same
+hour).** Static checks (`gofmt -l .`) walked the toolchain when it lived
+under `/workspace` — Go's own intentionally-malformed test fixtures made
+every sample fail static; fix: toolchain outside the workdir. And the
+artifact dump's size filter passed bytes where find wanted... bytes, but the
+divided constant made it "smaller than 256 bytes," dropping real files;
+smoke run 2 verified the full dump. This is the Δ1 lesson again: environment
+bugs masquerade as model results, and a 1-sample smoke before the matrix is
+the cheapest insurance in the repo.
+
+Cloud-vs-local (Δ5) execution equivalence: on the 61 samples that ran before
+compute exhaustion, Sonnet greened 31/33 (94%) and M3 19/28 (68%) — M3's
+go-t3-001 grammar edge (0/1 there, 0/5 in Δ5) and Sonnet's fileops-t2-002
+weakness both replicate on the cloud sandbox path.
+
+Final tally after durable replay (100/100, stamp `16b80b2` — dirty flag
+expected: the 70 MB Go tarball in `.cache/` is deliberately untracked):
+
+| (cloud run, post-replay) | M3 (thinking off, Nebius FP8) | Sonnet (OpenRouter) | Δ5 local ref |
+|---|---|---|---|
+| pass@k (task-level) | **1.00** | 1.00 | M3 0.90 / Sonnet 1.00 |
+| green samples | 34/50 (68%) | 46/50 (92%) | 29/50 / 46/50 |
+| compile rate | 0.86 | 0.92 | 0.76 / 0.92 |
+| mean test pass rate | 0.919 | 1.000 | 0.927 / 1.000 |
+| total spend | **$0.1094** | $1.6224 | $0.1225 / $1.6673 |
+| median $/sample | $0.000855 | $0.006167 | $0.000958 / $0.006695 |
+| cost per green sample | **$0.0032 (9.1%)** | $0.0353 | $0.0042 / $0.0362 |
+| median latency / TTFT | 7.4 s / 1.06 s | 6.0 s / 3.19 s | 3.5 s / 5.9 s |
+
+Reading it: the value story replicates on the cloud sandbox path — total
+spend 6.7% of baseline, per-green 9.1%. Two deltas from Δ5 worth naming:
+**(i) M3's pass@k went to 1.00 because one of five go-t3-001 samples
+cracked the grammar edge** (1/5 vs Δ5's 0/5 — across both runs the edge
+holds 1-for-15; near-deterministic, not absolute). **(ii) Sonnet is
+uncannily stable**: 46/50 greens both runs, fileops-t2-002 1/5 both runs —
+its one expensive weakness is a property of the model-task pair, not run
+noise. M3's compile rate rose (0.76 → 0.86) and greens rose (29 → 34) —
+cross-run variance at temp 0.2 with provider-side sampling nondeterminism,
+within what k=5 across two runs bounds.
+
+Raw: `results/2026-08-24-493f4f/{rows,summary}.json`; probes in
+`scripts/probe-*.ts`; replay tooling `scripts/{replay-failed,reaggregate}.ts`.
+
 ### Cost reference points (Δ2-pinned 2026-08-21)
 
 M3 pinned $0.30/$1.20 per Mtok (Finding 17b) vs Sonnet pinned $2.00/$10.00
@@ -387,7 +486,10 @@ thinking-off basis; the on-arm's numbers are recorded in the A/A artifacts).
 (Findings 19–20) · Δ5 full matrix — **done, 2026-08-21** (Finding 21: run
 `2026-08-21-c2ef21`, clean stamp `5bdf732` — M3 90% pass@k / 92.7% pass
 rate at 7.3% of Sonnet's total spend; the parity gap is one deterministic
-T3 grammar edge) · Δ6 reporting (article drafting — everything above is
+T3 grammar edge) · **Demo migration — done, 2026-08-24** (Finding 22: run
+`2026-08-24-493f4f` — everything through Inngest Cloud: sandbox execution,
+scores, experiment variants, session timeline; compute exhaustion recovered
+by durable replay) · Δ6 reporting (article drafting — everything above is
 the evidence base).
 
 ## M4/M5 — T2/T3 suite + tier breakdowns

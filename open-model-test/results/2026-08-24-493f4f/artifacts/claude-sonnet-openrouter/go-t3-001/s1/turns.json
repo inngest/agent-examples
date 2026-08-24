@@ -1,0 +1,18 @@
+[
+  {
+    "turn": 1,
+    "extracted": true,
+    "parseError": null,
+    "compiled": true,
+    "testsPassed": 5,
+    "testsTotal": 5,
+    "green": true,
+    "tokensPrompt": 557,
+    "tokensCompletion": 3105,
+    "latencyMs": 24123,
+    "costUsd": 0.032164,
+    "reasoningChars": 0,
+    "stdoutExcerpt": ",\"Test\":\"TestEvalVars\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:53.652871754Z\",\"Action\":\"run\",\"Package\":\"expr\",\"Test\":\"TestEvalErrors\"}\n{\"Time\":\"2026-08-21T22:58:53.652873634Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Test\":\"TestEvalErrors\",\"Output\":\"=== RUN   TestEvalErrors\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:53.652876194Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Test\":\"TestEvalErrors\",\"Output\":\"--- PASS: TestEvalErrors (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:53.652878434Z\",\"Action\":\"pass\",\"Package\":\"expr\",\"Test\":\"TestEvalErrors\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:53.652880334Z\",\"Action\":\"run\",\"Package\":\"expr\",\"Test\":\"TestDivByZero\"}\n{\"Time\":\"2026-08-21T22:58:53.652883414Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Test\":\"TestDivByZero\",\"Output\":\"=== RUN   TestDivByZero\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:53.652887004Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Test\":\"TestDivByZero\",\"Output\":\"--- PASS: TestDivByZero (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:53.652889514Z\",\"Action\":\"pass\",\"Package\":\"expr\",\"Test\":\"TestDivByZero\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:53.652892564Z\",\"Action\":\"run\",\"Package\":\"expr\",\"Test\":\"TestNilAndEmptyVarsEquivalent\"}\n{\"Time\":\"2026-08-21T22:58:53.652895534Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Test\":\"TestNilAndEmptyVarsEquivalent\",\"Output\":\"=== RUN   TestNilAndEmptyVarsEquivalent\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:53.652899074Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Test\":\"TestNilAndEmptyVarsEquivalent\",\"Output\":\"--- PASS: TestNilAndEmptyVarsEquivalent (0.00s)\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:53.652902544Z\",\"Action\":\"pass\",\"Package\":\"expr\",\"Test\":\"TestNilAndEmptyVarsEquivalent\",\"Elapsed\":0}\n{\"Time\":\"2026-08-21T22:58:53.652904384Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Output\":\"PASS\\n\",\"OutputType\":\"frame\"}\n{\"Time\":\"2026-08-21T22:58:53.652931744Z\",\"Action\":\"output\",\"Package\":\"expr\",\"Output\":\"ok  \\texpr\\t0.002s\\n\"}\n{\"Time\":\"2026-08-21T22:58:53.653477404Z\",\"Action\":\"pass\",\"Package\":\"expr\",\"Elapsed\":0.003}\n\n",
+    "stderrExcerpt": ""
+  }
+]
