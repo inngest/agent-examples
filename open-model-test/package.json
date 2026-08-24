@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
+    "dev": "INNGEST_DEV=1 bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "inngest": "INNGEST_DEV=1 inngest-cli dev",
     "smoke:model": "bun run scripts/smoke-model.ts",
