@@ -74,8 +74,10 @@ entirely (1.0 despite 46/50 greens); sample-level green rate and cost
 expose it. The agentic loop earned its turns: 7 of M3's and 6 of Sonnet's
 greens arrived after turn 1.
 
-**f) Static checks no longer discriminate.** gofmt/vet passed on 100% of
-samples for both models — formatting is a solved problem for this class.
+**f) Static checks no longer discriminate.** One static failure in 100
+samples (an M3 gofmt miss on its weak task, go-t3-001); gofmt/vet passed
+everywhere else for both models — formatting is a solved problem for this
+class.
 
 ## Known caveats
 
