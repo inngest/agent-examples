@@ -2,7 +2,7 @@
   "runId": "2026-08-24-493f4f",
   "meta": {
     "createdAt": "2026-08-24T16:03:06.573Z",
-    "completedAt": "2026-08-24T16:57:42.348Z",
+    "completedAt": "2026-08-24T16:59:28.435Z",
     "harnessCommit": "16b80b2a6fbf52b72f49ca8c34a2fc6599d8c62a",
     "gitDirty": true,
     "suiteHash": "5efdbe7a0d1507a1f30df35af22a08df77f89180d2ca7bffe6ccbbacaa64c43c",
@@ -76,26 +76,26 @@
       "passAtK": 1,
       "meanPassRate": 1,
       "variancePassRate": 0,
-      "compileRate": 0.9387755102040817,
+      "compileRate": 0.92,
       "staticPassRate": 1,
       "turns": {
         "medianTurnsToGreen": 1,
-        "greenWithinBudgetRate": 0.9387755102040817,
+        "greenWithinBudgetRate": 0.92,
         "medianTurnsUsed": 1,
         "greenByTurn": {
           "1": 40,
           "2": 5,
           "4": 1,
-          "never": 3
+          "never": 4
         }
       },
-      "medianLatencyMs": 5975,
+      "medianLatencyMs": 6030,
       "medianTtftMs": 2539,
-      "medianTokensPerSec": 86.99736940999624,
-      "medianCostUsd": 0.006072,
-      "totalCostUsd": 1.42659,
+      "medianTokensPerSec": 87.59910311503997,
+      "medianCostUsd": 0.006167000000000001,
+      "totalCostUsd": 1.6230859999999996,
       "sandboxPendingSamples": 0,
-      "failedSamples": 1,
+      "failedSamples": 0,
       "byTier": [
         {
           "tier": "T1",
@@ -136,26 +136,26 @@
       "tasks": 10,
       "samplesPerTask": 5,
       "passAtK": 1,
-      "meanPassRate": 0.9193798449612399,
-      "variancePassRate": 0.038160452811615606,
-      "compileRate": 0.86,
+      "meanPassRate": 0.9212121212121208,
+      "variancePassRate": 0.03742071881606763,
+      "compileRate": 0.88,
       "staticPassRate": 0.9767441860465116,
       "turns": {
         "medianTurnsToGreen": 1,
-        "greenWithinBudgetRate": 0.68,
+        "greenWithinBudgetRate": 0.7,
         "medianTurnsUsed": 1,
         "greenByTurn": {
           "1": 28,
-          "2": 4,
+          "2": 5,
           "5": 2,
-          "never": 16
+          "never": 15
         }
       },
       "medianLatencyMs": 6836.5,
-      "medianTtftMs": 1012.5,
-      "medianTokensPerSec": 121.75999874260543,
-      "medianCostUsd": 0.0008553,
-      "totalCostUsd": 0.10926780000000001,
+      "medianTtftMs": 991,
+      "medianTokensPerSec": 124.49730721290658,
+      "medianCostUsd": 0.00084885,
+      "totalCostUsd": 0.11128710000000003,
       "sandboxPendingSamples": 0,
       "failedSamples": 0,
       "byTier": [
@@ -169,7 +169,7 @@
           "tier": "T2",
           "tasks": 4,
           "passAtK": 1,
-          "meanPassRate": 0.8958333333333334
+          "meanPassRate": 0.9019607843137255
         },
         {
           "tier": "T3",
@@ -183,7 +183,7 @@
           "task_type": "agentic_fileops",
           "tasks": 5,
           "passAtK": 1,
-          "meanPassRate": 0.9275362318840579
+          "meanPassRate": 0.9305555555555555
         },
         {
           "task_type": "coding",

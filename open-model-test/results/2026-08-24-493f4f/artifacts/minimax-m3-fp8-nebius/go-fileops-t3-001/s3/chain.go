@@ -19,31 +19,35 @@ func New(handlers ...Handler) *Chain {
 	return &Chain{handlers: hs}
 }
 
-// Do runs the chain against ctx. It returns the first non-nil error
-// produced by a handler, or an error wrapping a recovered panic value.
-// A nil ctx yields ErrNoCtx. An empty chain returns nil.
-func (c *Chain) Do(ctx *Ctx) error {
+// Do runs the chain.
+//
+// It executes every handler in order against the same Ctx. If a handler
+// returns a non-nil error, execution stops immediately and that error is
+// returned (wrapped, but errors.Is against the original still succeeds).
+// If a handler panics, Do recovers, skips the remaining handlers, and
+// returns an error whose message contains the recovered value formatted
+// with %v. Do itself never panics. A nil Ctx yields ErrNoCtx. An empty
+// chain returns nil.
+func (c *Chain) Do(ctx *Ctx) (err error) {
 	if ctx == nil {
 		return ErrNoCtx
 	}
 
-	var err error
-	for _, h := range c.handlers {
-		err = safeCall(h, ctx)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// safeCall invokes h(ctx) and converts any panic into an error whose
-// message contains the recovered value formatted with %v.
-func safeCall(h Handler, ctx *Ctx) (err error) {
+	// Panic recovery: any panic from a handler stops the chain and is
+	// converted into an error. We use a named return so the deferred
+	// function can set the result.
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("mw: handler panic: %v", r)
 		}
 	}()
-	return h(ctx)
+
+	for _, h := range c.handlers {
+		if e := h(ctx); e != nil {
+			// Wrap the error so callers can still use errors.Is to
+			// inspect the original cause.
+			return fmt.Errorf("mw: handler error: %w", e)
+		}
+	}
+	return nil
 }

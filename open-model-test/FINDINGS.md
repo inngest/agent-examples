@@ -454,24 +454,37 @@ expected: the 70 MB Go tarball in `.cache/` is deliberately untracked):
 | (cloud run, post-replay) | M3 (thinking off, Nebius FP8) | Sonnet (OpenRouter) | Δ5 local ref |
 |---|---|---|---|
 | pass@k (task-level) | **1.00** | 1.00 | M3 0.90 / Sonnet 1.00 |
-| green samples | 34/50 (68%) | 46/50 (92%) | 29/50 / 46/50 |
-| compile rate | 0.86 | 0.92 | 0.76 / 0.92 |
-| mean test pass rate | 0.919 | 1.000 | 0.927 / 1.000 |
-| total spend | **$0.1094** | $1.6224 | $0.1225 / $1.6673 |
-| median $/sample | $0.000855 | $0.006167 | $0.000958 / $0.006695 |
-| cost per green sample | **$0.0032 (9.1%)** | $0.0353 | $0.0042 / $0.0362 |
-| median latency / TTFT | 7.4 s / 1.06 s | 6.0 s / 3.19 s | 3.5 s / 5.9 s |
+| green samples | 35/50 (70%) | 46/50 (92%) | 29/50 / 46/50 |
+| compile rate | 0.88 | 0.92 | 0.76 / 0.92 |
+| mean test pass rate | 0.921 | 1.000 | 0.927 / 1.000 |
+| total spend | **$0.1113** | $1.6231 | $0.1225 / $1.6673 |
+| median $/sample | $0.000849 | $0.006167 | $0.000958 / $0.006695 |
+| cost per green sample | **$0.0032 (9.0%)** | $0.0353 | $0.0042 / $0.0362 |
+| median latency / TTFT | 6.8 s / 0.99 s | 6.0 s / 2.54 s | 3.5 s / 5.9 s |
 
 Reading it: the value story replicates on the cloud sandbox path — total
-spend 6.7% of baseline, per-green 9.1%. Two deltas from Δ5 worth naming:
+spend 6.9% of baseline, per-green 9.0%. Two deltas from Δ5 worth naming:
 **(i) M3's pass@k went to 1.00 because one of five go-t3-001 samples
 cracked the grammar edge** (1/5 vs Δ5's 0/5 — across both runs the edge
 holds 1-for-15; near-deterministic, not absolute). **(ii) Sonnet is
 uncannily stable**: 46/50 greens both runs, fileops-t2-002 1/5 both runs —
 its one expensive weakness is a property of the model-task pair, not run
-noise. M3's compile rate rose (0.76 → 0.86) and greens rose (29 → 34) —
+noise. M3's compile rate rose (0.76 → 0.88) and greens rose (29 → 35) —
 cross-run variance at temp 0.2 with provider-side sampling nondeterminism,
 within what k=5 across two runs bounds.
+
+*Post-replay churn, documented: after the 100/100 tally, Inngest
+auto-retries of still-in-flight attempts (racing the replay re-sends)
+produced three more completions and two terminal failures. One late retry
+flipped M3's fileops-t2-001 from 4/5 to 5/5 greens. The two failures —
+both fileops-t2-002, "Sandbox file cannot be read in its current state"
+(the 300 s sandbox-lifetime cap expiring mid-loop on the suite's longest
+task) — had onFailure rows that clobbered their tuples' completed outcomes
+(last-writer-wins upserts; both completed attempts were non-green, so
+green counts were unaffected). The rows were restored from the platform's
+own recorded function results (`scripts/restore-clobbered.ts` — nothing
+hand-entered). Lesson for the harness: duplicate in-flight attempts +
+upsert need attempt-scoped versioning, not last-writer-wins.*
 
 Raw: `results/2026-08-24-493f4f/{rows,summary}.json`; probes in
 `scripts/probe-*.ts`; replay tooling `scripts/{replay-failed,reaggregate}.ts`.
