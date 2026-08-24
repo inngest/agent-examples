@@ -2,7 +2,7 @@
   "runId": "2026-08-24-493f4f",
   "meta": {
     "createdAt": "2026-08-24T16:03:06.573Z",
-    "completedAt": "2026-08-24T16:57:09.838Z",
+    "completedAt": "2026-08-24T16:57:42.348Z",
     "harnessCommit": "16b80b2a6fbf52b72f49ca8c34a2fc6599d8c62a",
     "gitDirty": true,
     "suiteHash": "5efdbe7a0d1507a1f30df35af22a08df77f89180d2ca7bffe6ccbbacaa64c43c",
@@ -76,26 +76,26 @@
       "passAtK": 1,
       "meanPassRate": 1,
       "variancePassRate": 0,
-      "compileRate": 0.92,
+      "compileRate": 0.9387755102040817,
       "staticPassRate": 1,
       "turns": {
         "medianTurnsToGreen": 1,
-        "greenWithinBudgetRate": 0.92,
+        "greenWithinBudgetRate": 0.9387755102040817,
         "medianTurnsUsed": 1,
         "greenByTurn": {
           "1": 40,
           "2": 5,
           "4": 1,
-          "never": 4
+          "never": 3
         }
       },
-      "medianLatencyMs": 6030,
-      "medianTtftMs": 3187.5,
-      "medianTokensPerSec": 87.59910311503997,
-      "medianCostUsd": 0.006167000000000001,
-      "totalCostUsd": 1.6230859999999996,
+      "medianLatencyMs": 5975,
+      "medianTtftMs": 2539,
+      "medianTokensPerSec": 86.99736940999624,
+      "medianCostUsd": 0.006072,
+      "totalCostUsd": 1.42659,
       "sandboxPendingSamples": 0,
-      "failedSamples": 0,
+      "failedSamples": 1,
       "byTier": [
         {
           "tier": "T1",
@@ -155,7 +155,7 @@
       "medianTtftMs": 1012.5,
       "medianTokensPerSec": 121.75999874260543,
       "medianCostUsd": 0.0008553,
-      "totalCostUsd": 0.1092174,
+      "totalCostUsd": 0.10926780000000001,
       "sandboxPendingSamples": 0,
       "failedSamples": 0,
       "byTier": [

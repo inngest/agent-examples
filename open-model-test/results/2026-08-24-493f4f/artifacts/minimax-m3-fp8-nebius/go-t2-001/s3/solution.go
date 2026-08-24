@@ -7,25 +7,25 @@ import (
 
 // ledger is the concrete implementation of the Ledger interface.
 type ledger struct {
-	accounts map[string]*account
+	accounts map[string]*accountState
 }
 
-// account holds the state for a single account.
-type account struct {
+// accountState holds the mutable state for a single account.
+type accountState struct {
 	balance int64
 	history []Entry
 }
 
 // NewLedger creates a new Ledger seeded with the provided starting balances.
-// Passing nil yields an empty ledger.
+// NewLedger(nil) yields an empty ledger.
 func NewLedger(starting map[string]int64) Ledger {
 	l := &ledger{
-		accounts: make(map[string]*account),
+		accounts: make(map[string]*accountState),
 	}
 	for name, bal := range starting {
-		l.accounts[name] = &account{
+		l.accounts[name] = &accountState{
 			balance: bal,
-			history: nil,
+			history: []Entry{},
 		}
 	}
 	return l
@@ -39,13 +39,17 @@ func (l *ledger) Record(e Entry) error {
 
 	acct, exists := l.accounts[e.Account]
 	if !exists {
-		acct = &account{}
+		acct = &accountState{
+			balance: 0,
+			history: []Entry{},
+		}
 		l.accounts[e.Account] = acct
 	}
 
 	newBalance := acct.balance + e.Amount
 	if newBalance < 0 {
-		return fmt.Errorf("%w: account %q", ErrInsufficient, e.Account)
+		return fmt.Errorf("%w: account %q balance %d withdrawal %d",
+			ErrInsufficient, e.Account, acct.balance, -e.Amount)
 	}
 
 	acct.balance = newBalance
