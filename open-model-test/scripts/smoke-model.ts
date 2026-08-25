@@ -1,10 +1,9 @@
-// M2 smoke test: bypasses Inngest entirely and exercises the adapter layer —
-// one real generation per model against the first task in the suite. Verifies
-// auth, streaming metrics, and code extraction before any matrix run.
-//
-// In v3 this is the Δ1 gate (spec v3 §14): it verifies the Nebius endpoint,
-// the exact M3 model string, streaming + usage shape, and the thinking
-// toggle's wire spelling against the live API.
+// Model smoke test: bypasses Inngest entirely and exercises the adapter
+// layer — one real generation per model against the first task in the
+// suite. Verifies auth, streaming metrics, and code extraction before any
+// matrix run: endpoint reachability, the exact model string, streaming +
+// usage shape, and (for hybrid-reasoning models) the thinking toggle's
+// wire spelling against the live API.
 //
 //   bun run smoke:model [taskId]
 

@@ -4,8 +4,8 @@ import { mean, median, sampleFullyPasses, samplePassRate, variance } from "./sta
 // Pure aggregation over the committed result rows: reproducible from
 // results/<run_id>/rows.json alone, no DB required.
 //
-// Every capability metric is segmented on BOTH axes (spec v2 §5.2/§12):
-// tier (difficulty) and task_type (workload — the headline cut).
+// Every capability metric is segmented on BOTH axes: tier (difficulty) and
+// task_type (workload — the headline cut).
 
 export type TierSummary = {
   tier: string;
@@ -65,10 +65,10 @@ export type RunSummary = {
     gitDirty: boolean | null;
     suiteHash: string | null;
     config: unknown;
-    // Spec v3 §8.5/§10: the rate-card snapshot behind every cost number,
-    // keyed by model id — committed cost stays auditable if a provider
-    // changes pricing after the run. ttft/tokens_per_sec in the rows are
-    // provider-observed (Nebius / OpenRouter serving), not local hardware.
+    // The rate-card snapshot behind every cost number, keyed by model id —
+    // committed cost stays auditable if a provider changes pricing after
+    // the run. ttft/tokens_per_sec in the rows are provider-observed
+    // (Nebius / OpenRouter serving), not local hardware.
     rateCard?: Record<string, { input_per_mtok: number; output_per_mtok: number }>;
   };
   models: ModelSummary[];

@@ -1,16 +1,15 @@
-// $0 task-suite validation (Finding 11 pattern): drives the REAL local
-// runner — the same runTurn the execute-sample functions call — with
-// reference solutions, before any model spend. For each task it runs the
-// good/wrong/broken matrix:
+// Task-suite validation: drives the REAL local runner — the same runTurn
+// the execute-sample functions call — with reference solutions, before any
+// model spend. For each task it runs the good/wrong/broken matrix:
 //
 //   good   → compiled && all tests pass && static clean   (task is passable)
 //   wrong  → compiled && ≥1 test fails                    (tests can bite)
 //   broken → build fails                                  (build gate works)
 //
 // Reference solutions live inline below — they are part of the task
-// contract (a task without a passing reference is unpassable-by-omission,
-// harness bug #9: three v3 tasks shipped without go.mod and a scored A/A
-// run caught what validation should have).
+// contract (a task without a passing reference is unpassable-by-omission;
+// this validator exists because three tasks once shipped without go.mod
+// and a scored run caught what validation should have).
 //
 //   bun run validate:tasks [taskId...]
 

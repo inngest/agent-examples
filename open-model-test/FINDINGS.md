@@ -1,6 +1,6 @@
-# Test Findings — open-model-test
+# Findings — open-model-test
 
-Final results from the two verified runs of the v3 harness: MiniMax M3
+Final results from the two verified runs of the harness: MiniMax M3
 (thinking off, FP8 on Nebius Token Factory) vs Claude Sonnet (OpenRouter),
 scored by execution only — compile, tests, static checks; never an LLM's
 opinion. Raw data for the reference run: `results/2026-08-24-493f4f/`.
@@ -66,8 +66,9 @@ Cost-per-green is the metric that captures this.
 
 **d) Latency numbers are provider-observed, not model speed.** The serving
 paths are asymmetric (Nebius-direct vs OpenRouter-routed; router noise of
-142→1,233 tok/s was observed on the same model+task in v2). Cross-model
-latency ratios must not be presented as pure model speed.
+142→1,233 tok/s was observed on the same model+task during an earlier
+iteration of this benchmark). Cross-model latency ratios must not be
+presented as pure model speed.
 
 **e) k=5 was load-bearing.** Task-level pass@k hides Sonnet's weakness
 entirely (1.0 despite 46/50 greens); sample-level green rate and cost
@@ -100,7 +101,7 @@ class.
 
 ## Harness/engineering notes
 
-- The v2→v3 model swap (Qwen-local → M3-on-Nebius) was a config change
+- A previous contender swap (Qwen-local → M3-on-Nebius) was a config change
   plus one adapter path (`src/models/adapter.ts`), not a rebuild — the
   architecture bet held.
 - Hybrid reasoning models silently burn budgets: M3 with default settings

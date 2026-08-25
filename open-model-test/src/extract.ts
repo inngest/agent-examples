@@ -2,7 +2,7 @@
 // prompt contract and both go through these exact functions — no
 // model-specific leniency anywhere in the pipeline.
 //
-// Two formats, in priority order (spec v2 §7 agentic loop):
+// Two formats, in priority order:
 //
 // 1. Multi-file markers — the contract for agentic turns:
 //
@@ -15,8 +15,8 @@
 //    Models sometimes wrap the whole payload in one fenced block; markers
 //    inside a single fence are unwrapped before parsing.
 //
-// 2. Single fenced block — the single-shot coding contract (unchanged since
-//    M1, so validated tasks keep their behavior): complete blocks are joined;
+// 2. Single fenced block — the single-shot coding contract (the original
+//    protocol, so validated tasks keep their behavior): complete blocks are joined;
 //    a lone unterminated fence (truncated reply) keeps everything after the
 //    fence line so a max_tokens cutoff doesn't score as garbage; no fences
 //    means the trimmed raw text.

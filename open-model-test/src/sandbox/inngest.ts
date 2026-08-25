@@ -10,8 +10,9 @@ import { parseGoTest, parseVitest } from "./local";
 // VM per (model, task, sample): seeded once, written + built + tested per
 // agentic turn, dumped and destroyed at loop end.
 //
-// Environment facts from Phase A recon (2026-08-24, INNGEST-SANDBOX-BUGS.md)
-// rewrote the assumptions this runner was originally coded against:
+// Environment facts (probed live 2026-08-24; full log in
+// INNGEST-SANDBOX-BUGS.md) rewrote the assumptions this runner was
+// originally coded against:
 //
 //   - The beta image is NixOS x86_64 (node 26, wget, tar, gzip; NO curl, NO
 //     Go, NO bun) and the VPC is fully hermetic: no DNS, ENETUNREACH to every
@@ -33,13 +34,12 @@ import { parseGoTest, parseVitest } from "./local";
 // (.cache/, sha256-verified), and each Go sandbox uploads it through the
 // files API (~11.5s for 70.5MB), untars (1.8s), and runs with GOCACHE/GOPATH
 // under /workspace and GOTOOLCHAIN=local (tasks pin go 1.24; no network means
-// no toolchain auto-downloads anyway). Verified end-to-end offline: probe
-// round 6, BUILD-OK in-VM.
+// no toolchain auto-downloads anyway). Verified end-to-end offline.
 
 const WORKDIR = "/workspace";
 const VCPU = 2;
 const MEMORY_MB = 2048;
-const RUNNING_TIMEOUT_S = 300; // client hard cap (probe round 3)
+const RUNNING_TIMEOUT_S = 300; // client hard cap (SandboxValidationError above this)
 const SEED_MARKER = `${WORKDIR}/.omt-seeded`;
 const DUMP_MAX_FILES = 200;
 const DUMP_MAX_BYTES = 256 * 1024;
@@ -49,7 +49,7 @@ const GO_TARBALL_PATH = join(PROJECT_ROOT, ".cache", `go${GO_VERSION}.linux-amd6
 // Toolchain + caches live OUTSIDE the workdir (/root, same disk): the tasks'
 // own static checks (`gofmt -l .`, `go vet ./...`) run cwd-scoped in
 // /workspace — shipping the toolchain inside it made them walk Go's own
-// intentionally-malformed test fixtures (smoke-run 2026-08-24-535a3e,
+// intentionally-malformed test fixtures (caught in a smoke run as
 // static_pass=0 with green tests).
 const GO_ROOT = "/root/omt-go";
 const GO_BIN = `${GO_ROOT}/go/bin`;
@@ -187,9 +187,9 @@ export async function openInngestSession(step: Step, req: SandboxSessionRequest)
       throw new Error(`mkdir ${WORKDIR} failed: ${decoder.decode(mk.stderr).trim()}`);
     }
 
-    // Language runtime check. Go bootstraps from the uploaded tarball (probe
-    // round 6); TS/Node ships with the image and needs no install (hermetic
-    // VPC — npm install is impossible, tasks must be dependency-free).
+    // Language runtime check. Go bootstraps from the uploaded tarball;
+    // TS/Node ships with the image and needs no install (hermetic VPC —
+    // npm install is impossible, tasks must be dependency-free).
     if (req.language === "go") {
       const probe = await execRaw((opts) => sandbox.commands.run("sb-go-probe", opts), `go version`, "/", 15);
       if (probe.exitCode !== 0) {

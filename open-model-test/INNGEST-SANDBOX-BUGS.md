@@ -1,10 +1,15 @@
 # Inngest Sandboxes beta — SDK/API bug log
 
+> **Pinned against:** TypeScript SDK **4.18.1** (latest as of 2026-08-24)
+> and the sandbox beta `default` image. The Sandboxes API is an evolving
+> beta — these bugs may since be fixed; verify against the current SDK
+> before relying on the workarounds below. Each entry includes a repro so
+> you can check in one command.
+
 Environment: Inngest cloud API (`api.inngest.com`), TypeScript SDK **4.18.1**
 (latest as of 2026-08-24), sandbox beta image `default` (NixOS x86_64, kernel
-6.18, node v26.5.0 / npm 11.17.0). Found during the open-model-test demo
-migration (Phase A recon; S4 found post-run via a diagnostic probe
-function).
+6.18, node v26.5.0 / npm 11.17.0). Found while building the open-model-test
+cloud runner (S4 found post-run via a diagnostic probe function).
 
 ---
 
@@ -140,6 +145,5 @@ undiscoverable).
   create — fixed to 300s. Sessions spanning slow turns + model latency must
   fit inside 5 min per running sandbox or be re-created.
 
-Bug log maintained in `INNGEST-SANDBOX-BUGS.md`; harness workarounds live in
-`src/sandbox/inngest.ts`. Found by the
-open-model-test benchmark migration (FINDINGS.md, Finding 22 in progress).
+Harness workarounds for everything above live in `src/sandbox/inngest.ts`.
+Found while building this benchmark's cloud runner (see FINDINGS.md).

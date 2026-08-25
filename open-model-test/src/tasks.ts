@@ -18,7 +18,7 @@ export const TaskSchema = z
     id: z.string().regex(/^[a-z0-9-]+$/),
     language: z.enum(["go", "typescript"]),
     tier: z.enum(["T1", "T2", "T3"]),
-    // Workload axis (spec v2 §5.2) — the headline cut of every report.
+    // Workload axis — the headline cut of every report.
     task_type: z.enum(["coding", "agentic_fileops"]).default("coding"),
     prompt: z.string().min(1),
     // Required for coding tasks (the single file to write); empty for

@@ -2,10 +2,11 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 
-// SQLite results store — one row per (model, task, sample), exactly the spec
-// §9 data model plus the failure-gallery columns (code, stdout, stderr, error).
-// The DB at data/results.db is the source of truth; aggregate-run and the
-// export script copy rows out to results/<run_id>/ as committed JSON.
+// SQLite results store — one row per (model, task, sample), with the
+// scoring columns plus the failure-gallery columns (code, stdout, stderr,
+// error). The DB at data/results.db is the source of truth; aggregate-run
+// and the export script copy rows out to results/<run_id>/ as committed
+// JSON.
 
 export const DB_PATH =
   process.env.RESULTS_DB_PATH ?? new URL("../data/results.db", import.meta.url).pathname;

@@ -59,8 +59,8 @@ for (const m of summary.models) {
   );
 }
 
-// Dual-axis breakdown (spec v2 §12): workload type is the headline cut,
-// tier is the difficulty gradient.
+// Dual-axis breakdown: workload type is the headline cut, tier is the
+// difficulty gradient.
 for (const m of summary.models) {
   if (m.byTaskType.length > 0) {
     console.log(`\n${m.model} by task_type:`);

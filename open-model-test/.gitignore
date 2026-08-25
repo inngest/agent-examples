@@ -2,4 +2,6 @@ node_modules/
 .env
 data/
 .cache/
+results/*
+!results/2026-08-24-493f4f/
 results/**/artifacts/

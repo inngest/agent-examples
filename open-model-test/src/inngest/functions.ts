@@ -51,11 +51,12 @@ const LOCAL_TOOLCHAINS: Record<string, string[]> = {
   typescript: ["bun"],
 };
 
-// Harness bug #8 (2026-08-21): the host Go toolchain had been removed and a
-// full A/A run scored 16/16 samples compile-fail with `bash: go: command
-// not found` — $0.055 of model spend producing a 0% that looked like a model
-// result. Environment must be validated before any spend, the same way task
-// suites are validated with known-bad solutions before models see them.
+// Lesson from a real incident (2026-08-21): the host Go toolchain had been
+// removed and a full A/A run scored 16/16 samples compile-fail with
+// `bash: go: command not found` — $0.055 of model spend producing a 0% that
+// looked like a model result. Environment must be validated before any
+// spend, the same way task suites are validated with known-bad solutions
+// before models see them.
 async function checkLocalToolchains(tasks: { language: string }[]): Promise<string[]> {
   const langs = [...new Set(tasks.map((t) => t.language))];
   const missing: string[] = [];
@@ -89,10 +90,9 @@ export const orchestrateRun = inngest.createFunction(
       throw new NonRetriableError(`invalid run event: ${parsed.error.message}`);
     }
 
-    // run.tasks (optional config): restrict the matrix to a subset — the
-    // Δ4 A/A run slices a few tasks per axis instead of paying for the
-    // full suite twice. Unknown ids fail fast rather than silently
-    // shrinking the matrix.
+    // run.tasks (optional config): restrict the matrix to a subset — handy
+    // for cheap smoke slices instead of paying for the full suite. Unknown
+    // ids fail fast rather than silently shrinking the matrix.
     const tasks = await step.run("load-suite", () => {
       const all = loadTasks();
       const wanted = config.run.tasks;
@@ -162,7 +162,7 @@ export const orchestrateRun = inngest.createFunction(
 // distributions side by side on one experiment. Per-model concurrency is
 // preserved via a keyed limit on event.data.modelId.
 //
-// The body is the spec v2 §7 agentic loop: each turn is a durable step pair
+// The body is the agentic fix-loop: each turn is a durable step pair
 // (memoized generate → persistent-session apply/evaluate), so a crash or
 // rate-limit resumes mid-loop without re-billing earlier turns. Single-shot
 // tasks (max_agent_turns: 1) take the same code path — the loop degenerates
@@ -532,12 +532,12 @@ export const executeSample = inngest.createFunction(
 
 // -- tally-samples ------------------------------------------------------------
 //
-// The join back to a completed run. One function, global concurrency 1 (the
-// repo's single-writer pattern from phase-3's capture-dataset): sample
-// completions land serialized, the completions table is idempotent, and the
-// last arrival flips the run to aggregating and emits run.completed exactly
-// once. (A crash between sendEvent and the status flip can re-send
-// run.completed on retry — aggregate-run is idempotent, so that's harmless.)
+// The join back to a completed run. One function, global concurrency 1 (a
+// single-writer tally): sample completions land serialized, the completions
+// table is idempotent, and the last arrival flips the run to aggregating
+// and emits run.completed exactly once. (A crash between sendEvent and the
+// status flip can re-send run.completed on retry — aggregate-run is
+// idempotent, so that's harmless.)
 
 export const tallySamples = inngest.createFunction(
   { id: "tally-samples", concurrency: 1, triggers: [{ event: EVENTS.sampleCompleted }] },
@@ -585,7 +585,7 @@ export const aggregateRun = inngest.createFunction(
     const summary = await step.run("compute-summary", () => computeSummary(runId, rows, run));
 
     // The public artifact: committed to the repo so every reported number
-    // links to raw rows (spec §12 reproducibility).
+    // links to raw rows.
     const outDir = await step.run("write-artifacts", () => {
       const dir = join(PROJECT_ROOT, "results", runId);
       mkdirSync(dir, { recursive: true });

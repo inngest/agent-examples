@@ -17,9 +17,10 @@ export const GenerationParamsSchema = z
     // (openrouter adapter only). Unset = provider default. Recorded in
     // every result row.
     reasoning_effort: z.enum(["low", "medium", "high"]).optional(),
-    // MiniMax M3 thinking toggle (spec v3 §7): decided once (Δ4 A/A run),
-    // applied identically across batch and live runs, recorded on every
-    // result row. Absent = the model has no such toggle (the baseline).
+    // Hybrid-reasoning thinking toggle (MiniMax M3): decided once by an A/A
+    // comparison run, applied identically across batch and live runs,
+    // recorded on every result row. Absent = the model has no such toggle
+    // (the baseline).
     thinking: z.boolean().optional(),
   })
   .strict();
@@ -27,18 +28,18 @@ export const GenerationParamsSchema = z
 export const ModelConfigSchema = z
   .object({
     // Identity string recorded in every result row. Encode provider +
-    // served precision here so results are never ambiguous (spec v3 §10),
-    // e.g. minimax-m3-fp8-nebius.
+    // served precision here so results are never ambiguous, e.g.
+    // minimax-m3-fp8-nebius.
     id: z.string().min(1),
-    // "openai_compat": any OpenAI-compatible endpoint (v3 contender path —
-    // MiniMax M3 on Nebius Token Factory). "openrouter": the v2 baseline
-    // path, kept so committed runs stay reproducible.
+    // "openai_compat": any OpenAI-compatible endpoint (the contender path —
+    // MiniMax M3 on Nebius Token Factory). "openrouter": the baseline path,
+    // kept so committed runs stay reproducible.
     adapter: z.enum(["openai_compat", "openrouter"]),
     // The model string actually called on the provider's API.
     model: z.string().min(1),
     // Base URL of the OpenAI-compatible API. Supports ${ENV_VAR}
-    // interpolation (spec v3 §11 syntax), expanded at load. Unset = the
-    // adapter's built-in default (see src/models/adapter.ts).
+    // interpolation, expanded at load. Unset = the adapter's built-in
+    // default (see src/models/adapter.ts).
     endpoint: z.string().min(1).optional(),
     // Which env var holds this provider's API key. Unset = the adapter's
     // built-in default.
@@ -47,8 +48,8 @@ export const ModelConfigSchema = z
     concurrency: z.number().int().positive().default(4),
     params: GenerationParamsSchema,
     // USD per 1M tokens, pinned from the provider's rate card at setup and
-    // snapshotted into every run's metadata (spec v3 §8.5/§10) so committed
-    // cost numbers stay auditable if pricing changes.
+    // snapshotted into every run's metadata so committed cost numbers stay
+    // auditable if pricing changes.
     pricing: z
       .object({
         input_per_mtok: z.number().min(0),
@@ -58,9 +59,9 @@ export const ModelConfigSchema = z
   })
   .strict();
 
-// Multi-file response contract (spec v2 §7): the agentic-loop format both
-// models must use. Defaults live here so every run records the exact
-// contract; a yaml override replaces it wholesale (and is recorded too).
+// Multi-file response contract for the agentic loop: the format both models
+// must use. Defaults live here so every run records the exact contract; a
+// yaml override replaces it wholesale (and is recorded too).
 export const DEFAULT_FILE_FORMAT = `
 ## Response format
 
@@ -91,8 +92,8 @@ export const BenchmarkConfigSchema = z
       .object({
         k_samples: z.number().int().positive(),
         seed_policy: z.enum(["vary", "fixed"]),
-        // Optional task-id subset (spec v3 Δ4: the thinking A/A run uses a
-        // small slice). Unset = the full suite.
+        // Optional task-id subset for cheap slices (e.g. a one-model
+        // smoke matrix). Unset = the full suite.
         tasks: z.array(z.string().min(1)).optional(),
       })
       .strict(),
@@ -127,8 +128,8 @@ export const CONFIG_PATH =
   process.env.BENCHMARK_CONFIG ??
   new URL("../config/benchmark.yaml", import.meta.url).pathname;
 
-// Expands ${ENV_VAR} references in config strings (spec v3 §11 endpoint
-// syntax). Fails at load time with the variable name — a silently empty
+// Expands ${ENV_VAR} references in config strings (used for endpoint
+// URLs). Fails at load time with the variable name — a silently empty
 // base URL would surface much later as a confusing request error.
 export function expandEnvRefs(value: string): string {
   return value.replace(/\$\{([A-Z][A-Z0-9_]*)\}/g, (_, name: string) => {

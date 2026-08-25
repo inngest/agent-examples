@@ -11,8 +11,8 @@ import { join, dirname, relative } from "node:path";
 import { tmpdir } from "node:os";
 import type { SandboxSession, SandboxSessionRequest, SessionFiles, Step, TurnResult } from "./runner";
 
-// Local session runner — the persistent-sandbox stand-in (spec v2 §6,
-// fallback tier). A session is a named directory under the OS temp root:
+// Local session runner — the persistent-sandbox stand-in. A session is a
+// named directory under the OS temp root:
 // seeded once, written per turn, walked + removed at close. Because the dir
 // is keyed by the deterministic sandbox name, a worker restart mid-loop
 // reattaches to the same on-disk session instead of losing turn-1 state.

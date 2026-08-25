@@ -5,10 +5,10 @@ import { extractCode } from "../extract";
 import { loadDirFiles, workspaceDir, type Task } from "../tasks";
 
 // One adapter interface over every contender. Two implementations of the
-// same OpenAI chat-completions protocol (spec v3): "openai_compat" for the
-// contender — MiniMax M3 on Nebius Token Factory — and "openrouter" for the
-// Sonnet baseline. The seam stays so a future contender (first-party
-// MiniMax, direct Anthropic, local weights) drops in without touching the
+// same OpenAI chat-completions protocol: "openai_compat" for the contender
+// — MiniMax M3 on Nebius Token Factory — and "openrouter" for the Sonnet
+// baseline. The seam stays so a future contender (first-party MiniMax,
+// direct Anthropic, local weights) drops in without touching the
 // functions.
 
 export type GenerationRequest = {
@@ -34,9 +34,9 @@ export type GenerationResult = {
   tokensPerSec: number | null;
   latencyMs: number;
   costUsd: number | null;
-  // M3-on-Nebius streams an out-of-band `reasoning_content` channel (Δ1):
-  // size in chars, recorded per turn so the Δ4 A/A run can quantify thinking
-  // verbosity. 0 for models without the channel (the baseline).
+  // M3-on-Nebius streams an out-of-band `reasoning_content` channel: size
+  // in chars, recorded per turn so A/A runs can quantify thinking verbosity.
+  // 0 for models without the channel (the baseline).
   reasoningChars: number;
 };
 
@@ -57,9 +57,9 @@ export function createAdapter(model: ModelConfig): ModelAdapter {
 
 // The identical prompt both models receive, built once here so there is
 // exactly one place where prompt construction can diverge (it must not).
-// Turn-aware (spec v2 §7): turn 1 states the task (plus the seed codebase
-// for agentic_fileops tasks); later turns replay the previous attempt and
-// its failure output so the model can fix what it broke.
+// Turn-aware: turn 1 states the task (plus the seed codebase for
+// agentic_fileops tasks); later turns replay the previous attempt and its
+// failure output so the model can fix what it broke.
 
 export type TurnContext = {
   turn: number;
@@ -143,7 +143,7 @@ export function buildGenerationRequest(
 // per-adapter defaults so the same providerTarget() resolves endpoints for
 // the smoke script without duplicating the fallback chain.
 const ADAPTER_DEFAULTS = {
-  // Nebius Token Factory, OpenAI-compatible API (spec v3 contender).
+  // Nebius Token Factory, OpenAI-compatible API (the contender path).
   openai_compat: { endpoint: "https://api.tokenfactory.nebius.com/v1/", apiKeyEnv: "NEBIUS_API_KEY" },
   openrouter: { endpoint: "https://openrouter.ai/api/v1", apiKeyEnv: "OPENROUTER_API_KEY" },
 } as const;
@@ -187,8 +187,8 @@ type UsageWithCost = { cost?: number };
 
 type StreamParams = Parameters<OpenAI["chat"]["completions"]["stream"]>[0];
 
-// MiniMax M3's thinking toggle (spec v3 §7) — Δ1-confirmed wire spelling
-// (2026-08-21, token-level probes on tokenfactory.nebius.com):
+// MiniMax M3's thinking toggle — wire spelling confirmed by token-level
+// probes against tokenfactory.nebius.com (2026-08-21):
 //
 // - A literal `thinking: true|false` body param is ACCEPTED but IGNORED —
 //   no 400, no effect; M3 reasons by default either way.
@@ -216,8 +216,9 @@ function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
       // First/last token across BOTH channels (content and reasoning_content):
       // a reasoning model streams its thinking preamble before any content, so
       // first-content-token TTFT and content-phase tok/s would understate the
-      // wait and inflate throughput (Δ1 finding). For non-reasoning models
-      // (the baseline) the reasoning channel never fires and nothing changes.
+      // wait and inflate throughput (confirmed by streaming probes on the
+      // Nebius endpoint). For non-reasoning models (the baseline) the
+      // reasoning channel never fires and nothing changes.
       let firstTokenAt: number | null = null;
       let lastTokenAt: number | null = null;
       let raw = "";
@@ -241,9 +242,9 @@ function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
         top_p: req.topP,
         max_tokens: req.maxTokens,
         // Pass-through: providers forward `seed` only where supported —
-        // OpenRouter forwards to backing providers that accept it; whether
-        // Nebius honors it is checked in the Δ1 smoke test. Documented as a
-        // deviation in the README either way.
+        // OpenRouter forwards to backing providers that accept it; Nebius's
+        // handling was checked in the endpoint smoke test. Recorded per row
+        // either way; see FINDINGS.md ("Known caveats").
         seed: req.seed,
         stream: true,
         stream_options: { include_usage: true },
@@ -284,7 +285,7 @@ function openAiCompatAdapter(model: ModelConfig): ModelAdapter {
       // tokens/sec measures the generation phase (first token to last token,
       // both channels), not the full request — prompt processing shouldn't
       // dilute it. Short replies that arrive in one buffered burst have a
-      // zero-width window: tok/s is null rather than fabricated (Δ1: short
+      // zero-width window: tok/s is null rather than fabricated (short
       // Nebius responses can land in a single flush).
       let tokensPerSec: number | null = null;
       const genWindowMs =

@@ -5,7 +5,7 @@ import { hiddenDir, workspaceDir, loadDirFiles, type Task } from "../tasks";
 import { openInngestSession } from "./inngest";
 import { openLocalSession } from "./local";
 
-// Sandbox session seam — spec v2 §6. A session is a persistent workspace that
+// Sandbox session seam. A session is a persistent workspace that
 // survives across agentic-loop turns: seeded once (workspace fixtures +
 // hidden tests), written to per turn, evaluated per turn (build → test →
 // static), and dumped + destroyed at loop end. State written in turn 1
@@ -55,7 +55,7 @@ export type TurnResult = {
   durationMs: number;
 };
 
-// Final file tree at loop end — the failure-gallery artifact (spec §12).
+// Final file tree at loop end — the failure-gallery artifact.
 export type SessionDump = { files: SessionFiles };
 
 export interface SandboxSession {

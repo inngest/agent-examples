@@ -13,7 +13,7 @@
     "export": "bun run scripts/export-results.ts",
     "typecheck": "tsc --noEmit"
   },
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "hono": "^4.12.0",
     "inngest": "^4.13.0",
