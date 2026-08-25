@@ -1,0 +1,31 @@
+id: go-fileops-t1-001
+language: go
+tier: T1
+task_type: agentic_fileops
+prompt: |
+  The function `Truncate` in `truncate.go` has a bug: it measures and
+  slices by BYTES, not runes. For multi-byte UTF-8 input (e.g. "日本語",
+  "café", emoji) it returns the wrong number of characters and can slice a
+  rune in half, producing invalid UTF-8.
+
+  Fix `truncate.go` so that:
+
+  - `Truncate(s, n)` returns at most `n` RUNES of s.
+  - When shortening actually happens (s has more than n runes), the result
+    is those first n runes followed by a single ellipsis rune "…" (U+2026).
+    The ellipsis does NOT count toward n.
+  - When s has n runes or fewer, s is returned unchanged with no ellipsis.
+  - n <= 0 returns "".
+  - The result is always valid UTF-8.
+
+  Return the corrected `truncate.go` using the file-marker format.
+entrypoint: ""
+workspace: workspace/
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 60
+max_agent_turns: 3

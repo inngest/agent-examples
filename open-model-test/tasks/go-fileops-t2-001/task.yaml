@@ -1,0 +1,31 @@
+id: go-fileops-t2-001
+language: go
+tier: T2
+task_type: agentic_fileops
+prompt: |
+  The `loader` package currently calls its source function on every `Get`.
+  Add caching with this exact policy:
+
+  - A SUCCESSFUL source result (value, nil) is cached for its key: further
+    `Get` calls for that key return the cached value and MUST NOT call the
+    source again.
+  - A FAILED source result (_, err) is NOT cached: the next `Get` for that
+    key calls the source again.
+  - `New(src)` accepts a nil src; `Get` on such a Loader returns an error
+    for any key (message free-form) and never panics.
+  - `Get` is only required to be safe for single-goroutine use.
+  - Concurrent semantics, cache eviction, and TTLs are out of scope.
+
+  You may modify `loader.go` and/or add new files in the package. Do not
+  change `Source`'s signature. Exported surface must keep `New` and `Get`
+  with their current signatures.
+entrypoint: ""
+workspace: workspace/
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 60
+max_agent_turns: 4

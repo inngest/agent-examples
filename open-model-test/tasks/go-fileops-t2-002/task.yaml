@@ -1,0 +1,37 @@
+id: go-fileops-t2-002
+language: go
+tier: T2
+task_type: agentic_fileops
+prompt: |
+  The `conf` package reads settings from config files and from the
+  process environment, but the merge in `load.go` is unimplemented and the
+  pieces don't quite compose. Implement `Load` with this exact contract:
+
+  - `fileContent` is the raw text of a config file: one `key=value` pair
+    per line. Keys are case-sensitive. Whitespace around keys and values is
+    trimmed. Empty lines and lines starting with `#` are ignored. A line
+    without `=` is ignored. Only the FIRST `=` splits the pair (values may
+    contain `=`).
+  - `environ` is a list of `KEY=VALUE` strings (like os.Environ). Only
+    entries whose key starts with `APP_` are considered; that prefix is
+    stripped ("APP_TIMEOUT=5" sets key "TIMEOUT" to "5"). Entries without
+    `=` are ignored. No trimming is applied to environ values.
+  - Precedence: environment entries OVERRIDE file entries for the same
+    key. Otherwise the file value is used.
+  - A key set to the empty string (from either source) is still a set key
+    with value "" — it must appear in the result.
+  - The returned map is non-nil (empty map for empty input) and contains
+    nothing beyond the rules above. `Load` never panics on odd input.
+
+  You may rework any file in the package (parsing helpers in `parse.go`
+  may be useful or may be rewritten) as long as `Load`'s signature stays.
+entrypoint: ""
+workspace: workspace/
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 60
+max_agent_turns: 4

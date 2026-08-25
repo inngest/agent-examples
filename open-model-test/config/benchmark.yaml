@@ -1,0 +1,78 @@
+run:
+  k_samples: 5 # samples per task for pass@k + variance
+  seed_policy: vary # vary seeds across samples (deterministic per (run, model, task, sample))
+
+models:
+  # Contender: MiniMax M3, served in FP8 on Nebius Token Factory's
+  # OpenAI-compatible API. The identity string encodes provider + served
+  # precision and is recorded verbatim in every result row, so results are
+  # never ambiguous about what exactly was measured.
+  - id: minimax-m3-fp8-nebius
+    adapter: openai_compat
+    endpoint: ${NEBIUS_BASE_URL}
+    api_key_env: NEBIUS_API_KEY
+    # Verified against GET /v1/models (2026-08-21): the org prefix is
+    # MiniMaxAI, not MiniMax (the OpenRouter spelling). Exactly one M3
+    # variant is served — no precision-variant model strings — so the fp8
+    # in the id comes from Nebius's model card, not a variant slug.
+    model: MiniMaxAI/MiniMax-M3
+    concurrency: 4 # verified by a 12-parallel probe (2026-08-21): no 429s,
+    # no time-to-first-token inflation — roughly 3x demonstrated headroom.
+    # Note: the x-ratelimit-* headers Nebius documents are absent from
+    # responses, so limits have to be probed rather than read.
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      # Same output budget as the baseline — a cap difference would be an
+      # unfair confound (a truncated solution fails the compile gate).
+      max_tokens: 8192
+      # Thinking toggle, pinned OFF by an A/A comparison run (2026-08-21):
+      # thinking-on costs 3.4x latency / 3.7x $ per sample and systematically
+      # starves the hardest tier — 4/4 probed samples burned the entire
+      # shared 8192 budget on reasoning alone, returning zero content
+      # (~$0.01 each for guaranteed compile-fails). Budget starvation is a
+      # real failure under this harness, not an artifact. Recorded on every
+      # row; see FINDINGS.md ("Harness/engineering notes").
+      thinking: false
+    # $0.30/$1.20 per Mtok (pinned 2026-08-21) — the Nebius rate-card price,
+    # corroborated by two independent Nebius-specific price trackers and
+    # consistent with the first-party cluster price. Nebius's public docs
+    # don't expose per-model pricing (console login required) — provenance
+    # disclosed; the first billed run cross-checks. Standard tier — the
+    # tasks never approach the 512K long-context tier.
+    pricing:
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
+
+  # Baseline: Sonnet, routed via OpenRouter. A direct Anthropic adapter was
+  # considered; keeping the baseline on the same OpenAI-compatible protocol
+  # preserves comparability with earlier committed runs.
+  - id: claude-sonnet-openrouter
+    adapter: openrouter
+    # Dated snapshot slug (pinned 2026-08-21): the OpenRouter endpoints API
+    # showed all 9 backing providers serving exactly this dated snapshot.
+    # The alias would silently track whatever Anthropic ships next; the
+    # dated slug can't drift.
+    model: anthropic/claude-sonnet-5-20260630
+    concurrency: 4
+    params:
+      temperature: 0.2
+      top_p: 0.95
+      max_tokens: 8192
+    pricing: # USD per 1M tokens, from OpenRouter's pricing API (pinned 2026-08-17; re-verified 2026-08-21 — $2.00/$10.00 on 6/9 endpoints, $2.20/$11.00 on the rest; the reported per-generation cost stays authoritative)
+      input_per_mtok: 2.00
+      output_per_mtok: 10.00
+
+prompting:
+  # Identical across models — this exact string is recorded with every run.
+  # {entrypoint} is replaced with the task's entrypoint filename (coding
+  # tasks) or a generic phrase (agentic tasks).
+  system: "You are a Go coding assistant. Return code changes only."
+  user_suffix: |
+    Write the complete contents of {entrypoint}. Put the code in a single fenced code block. Do not include any other files.
+  # file_format / fix_suffix (the agentic multi-file marker contract and the
+  # fix-turn instruction) default from src/config.ts and are recorded per run.
+
+sandbox:
+  runner: local
+  default_timeout_seconds: 60

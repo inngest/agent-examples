@@ -1,0 +1,33 @@
+id: go-t1-002
+language: go
+tier: T1
+task_type: coding
+prompt: |
+  Implement `Slugify(s string) string` in package `slug` (solution.go),
+  which converts arbitrary text into a URL slug.
+
+  Rules (applied in order):
+  - Convert ASCII letters to lowercase.
+  - Keep ASCII letters and digits unchanged.
+  - Non-ASCII runes (letters, digits, symbols, anything >= U+0080) are dropped.
+  - Runs of spaces, tabs, underscores, and hyphens each collapse into a
+    single hyphen '-'. Other ASCII symbols and punctuation are dropped
+    without leaving a separator.
+  - A leading separator in the input produces no leading hyphen in the
+    output; same for trailing.
+  - The empty string (or input that drops/collapses to nothing) yields "".
+
+  Examples:
+  - Slugify("Hello, World!") == "hello-world"
+  - Slugify("  Multiple   Spaces  ") == "multiple-spaces"
+  - Slugify("café_réstaurant") == "caf-restaurant"
+  - Slugify("!!!") == ""
+entrypoint: solution.go
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 60
+max_agent_turns: 1

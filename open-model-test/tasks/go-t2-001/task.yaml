@@ -1,0 +1,67 @@
+id: go-t2-001
+language: go
+tier: T2
+task_type: coding
+prompt: |
+  Implement `NewLedger` in package `ledger` (solution.go).
+
+  At build time a file `ledger.go` is provided in your package. Do NOT
+  re-create, modify, or include it in your answer — write solution.go only.
+  It declares:
+
+  ```go
+  type Entry struct {
+      Account string
+      Amount  int64 // positive = deposit, negative = withdrawal
+      Tag     string
+  }
+
+  var (
+      ErrUnknownAccount = errors.New("ledger: unknown account")
+      ErrInsufficient   = errors.New("ledger: insufficient funds")
+      ErrZeroAmount     = errors.New("ledger: zero amount")
+  )
+
+  type Ledger interface {
+      // Record applies e atomically: it either commits or changes nothing.
+      Record(e Entry) error
+      // Balance returns the account's current balance.
+      Balance(account string) (int64, error)
+      // History returns committed entries for account in commit order.
+      History(account string) ([]Entry, error)
+  }
+  ```
+
+  Export exactly one constructor from solution.go:
+
+  ```go
+  func NewLedger(starting map[string]int64) Ledger
+  ```
+
+  Semantics:
+  - `NewLedger(nil)` yields an empty ledger. Starting balances seed accounts;
+    a seeded account with no committed entries has an empty History.
+  - Record succeeds (and creates the account if needed) when Amount != 0 and
+    the post-record balance is >= 0. On success the entry is committed:
+    balance updates and History gains the entry at the end.
+  - Record rejects Amount == 0 with ErrZeroAmount.
+  - Record rejects a withdrawal that would overdraw the account with
+    ErrInsufficient (balance and History unchanged — callers must be able to
+    distinguish this from success by checking errors.Is(err, ErrInsufficient);
+    you may wrap the sentinel with extra context).
+  - Balance returns ErrUnknownAccount for an account that is neither seeded
+    nor ever committed (errors.Is must match).
+  - History returns ErrUnknownAccount under the same condition.
+  - History must return a copy: mutating the returned slice must not affect
+    subsequent History calls.
+  - The returned Ledger must be safe for use from a single goroutine only
+    (no concurrency requirement).
+entrypoint: solution.go
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 60
+max_agent_turns: 1

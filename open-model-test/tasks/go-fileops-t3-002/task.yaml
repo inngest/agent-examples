@@ -1,0 +1,44 @@
+id: go-fileops-t3-002
+language: go
+tier: T3
+task_type: agentic_fileops
+prompt: |
+  The `bus` package sketches an in-process publish/subscribe event bus
+  (types in `bus.go`), but `Bus` in `hub.go` is unimplemented. Make it
+  real with this exact contract:
+
+  - `New() *Bus` creates a bus safe for use from a single goroutine.
+  - `Subscribe(topic string, fn Subscriber) (unsubscribe func())` registers
+    fn for topic and returns a closure that removes exactly that
+    subscription. Calling it twice is safe (second call is a no-op).
+  - Topics are dot-separated segments: "user.created", "user.updated",
+    "mail.sent". A subscriber may register the wildcard "*" as ONE segment:
+    "user.*" matches "user.created" and "user.updated" but NOT
+    "user.profile.updated". "*" alone matches every topic. Wildcards match
+    exactly one segment and only as a complete segment ("user.cre*" is a
+    literal topic, not a pattern).
+  - `Publish(topic string, payload any) []error` dispatches SYNCHRONOUSLY
+    to all matching subscribers in subscription order.
+  - Error isolation: a subscriber returning an error does NOT stop the
+    others; every subscriber's error appears in the returned slice (nil
+    entries are skipped). Publish itself never panics from a subscriber
+    error, and returns nil when there are no matches or no errors.
+  - An unsubscribed handler must never be called again, including for a
+    Publish already in flight? NO — unsubscribing during someone else's
+    Publish is out of scope; the guarantee only covers subsequent Publish
+    calls.
+  - A nil subscriber is ignored at Subscribe time (returns a no-op
+    unsubscribe).
+
+  You may rework hub.go/bus.go or add files as long as `New`, `Subscribe`,
+    `Publish`, and `Subscriber` keep their signatures.
+entrypoint: ""
+workspace: workspace/
+build_command: "go build ./... && go test -run '^$' -count=1 ./..."
+test_command: "go test ./... -json"
+static_checks:
+  - "go vet ./..."
+  - "gofmt -l ."
+hidden_tests: hidden/
+timeout_seconds: 90
+max_agent_turns: 6
