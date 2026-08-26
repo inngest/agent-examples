@@ -9,8 +9,6 @@ vs Claude Sonnet (OpenRouter) — orchestrated end-to-end by
 and passes tests, never by an LLM's opinion of it.
 
 - **What we measured** → [FINDINGS.md](FINDINGS.md) — final tables + analysis
-- **Inngest Sandboxes environment notes + SDK bugs worked around** →
-  [INNGEST-SANDBOX-BUGS.md](INNGEST-SANDBOX-BUGS.md)
 
 ## What this example demonstrates
 
@@ -30,7 +28,8 @@ or running it shows:
   model is a variant of a `model-faceoff` experiment; per-sample metrics
   (latency, tokens/sec, cost, compile rate, test pass rate) stream to the
   dashboard as they complete, both models side by side.
-- **[Inngest Sandboxes](https://www.inngest.com/docs/sandboxes)** — optional
+- **[Inngest Sandboxes](https://www.inngest.com/docs/sandboxes)** (closed
+  beta) — optional
   cloud-only execution of untrusted model code in hermetic, egress-free VMs,
   including bootstrapping a Go toolchain through the files API.
 - **Config-driven model swaps** — swapping the contender model is a YAML
@@ -93,8 +92,8 @@ Two sandbox runners ship:
   own tasks; see the trust note in `src/sandbox/local.ts`.
 - **`inngest`** — runs compilation inside Inngest Sandboxes (cloud VMs,
   hermetic VPC, no egress). The worker ships a pinned Go toolchain into each
-  sandbox through the files API; see `src/sandbox/inngest.ts` and
-  INNGEST-SANDBOX-BUGS.md for the environment constraints.
+  sandbox through the files API; see `src/sandbox/inngest.ts` for the
+  environment constraints.
 
 ## Quickstart (local runner + Inngest Dev Server)
 
@@ -160,9 +159,10 @@ BENCHMARK_CONFIG=config/benchmark.cheap.yaml bun run dev
 BENCHMARK_CONFIG=config/benchmark.cloud.yaml bun run start
 ```
 
-Sandboxes are a cloud-only beta (access-gated; a `403 access_denied` means
-asking Inngest to enable them for you). Budget note: each sample ships the
-~70 MB Go toolchain to its sandbox.
+Sandboxes are a cloud-only **closed beta** — there is no public signup; a
+waitlist is available by contacting Inngest. A `403 access_denied` means your
+account isn't enabled yet. Budget note: each sample ships the ~70 MB Go
+toolchain to its sandbox.
 
 ## Configuration
 
