@@ -5,3 +5,4 @@ data/
 results/*
 !results/2026-08-24-493f4f/
 results/**/artifacts/
+INNGEST-SANDBOX-BUGS.md
