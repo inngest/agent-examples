@@ -5,8 +5,8 @@
 # Deploy: Render dashboard → New → Blueprint → select this repo. You'll be
 # prompted once per unique secret (sync: false) below:
 #   - INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY — from app.inngest.com
-#   - ANTHROPIC_AUTH_TOKEN — an OpenRouter key (https://openrouter.ai/keys);
-#     the worker calls models through OpenRouter's Anthropic-compatible API.
+#   - OPENROUTER_API_KEY — https://openrouter.ai/keys; all model traffic
+#     (chat turns + judge scoring) goes through OpenRouter.
 services:
   # Next.js web app: chat UI, POST /api/chat, realtime token minting.
   # Sends events + mints tokens only — never runs a step or calls a model.
@@ -40,17 +40,14 @@ services:
       # Score writes (inngest.score.experiment) go through the same client.
       - key: INNGEST_EVENT_KEY
         sync: false
-      # OpenRouter serves the Anthropic Messages API; the SDK appends
-      # /v1/messages to this base URL and sends the auth token as a Bearer.
-      - key: ANTHROPIC_BASE_URL
-        value: https://openrouter.ai/api
-      - key: ANTHROPIC_AUTH_TOKEN
+      # All model calls (chat + judges) go through OpenRouter via the
+      # OpenAI-compatible SDK (see src/worker/openrouter.ts).
+      - key: OPENROUTER_API_KEY
         sync: false
-      # The chat-model experiment buckets sessions 50/50 Haiku vs Opus; the
-      # judge scores each run. Judge on Haiku keeps demo costs down.
-      - key: MODEL_HAIKU
-        value: anthropic/claude-haiku-4.5
-      - key: MODEL_OPUS
-        value: anthropic/claude-opus-4.8
+      # The chat-model experiment buckets sessions 50/50 into MODEL_A vs
+      # MODEL_B; code defaults are anthropic/claude-sonnet-5 vs
+      # nvidia/nemotron-3-ultra-550b-a55b — override here if desired.
+      # Judge scores each run; pinned to Haiku to keep demo costs down
+      # (code default is anthropic/claude-opus-4.8).
       - key: JUDGE_MODEL
         value: anthropic/claude-haiku-4.5

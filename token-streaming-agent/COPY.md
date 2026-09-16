@@ -82,6 +82,15 @@ Use verbatim; each is verifiably true in this repo.
   events and mints subscription tokens. All model traffic lives in the
   worker.
 
+- **"Swap the model, not the code."** One OpenRouter key covers everything;
+  `MODEL_A` / `MODEL_B` point the experiment at any two models OpenRouter
+  serves — the agent loop, tools, and streaming don't change.
+
+- **"The model writes Python. The sandbox runs it. It's still just a step."**
+  A `run_python` tool executes model-written scripts in a secure in-process
+  interpreter (Monty) — no filesystem, network, or env access — and the
+  whole call is one memoized `tool-run_python-*` step like any other.
+
 **Accuracy guardrails** (keep copy honest):
 
 - Say steps are **"replayed from memory"** or **"not re-executed"** — the
@@ -105,24 +114,29 @@ Use verbatim; each is verifiably true in this repo.
 | Retry re-streams from `seq: 0`; UI resets | Design notes in `README.md` — "`seq: 0` replay semantics" |
 | Outbound-only worker, no serve route | `src/worker/index.ts` — `connect({ apps: [...] })` |
 | Web app never executes a step | `src/app/api/chat/route.ts`, `src/app/api/realtime-token/route.ts` |
+| Any two models, one OpenRouter key | `src/worker/openrouter.ts`, `MODEL_A`/`MODEL_B` in `src/worker/chat-function.ts` |
+| Python tool runs in a secure sandbox, as a step | `src/worker/sandbox/` (Monty runner), `tool-run_python-*` in `src/worker/agent.ts` |
 
 ---
 
 ## Demo script (60 seconds)
 
 1. **Open the deployed app.** Ask the demo prompt:
-   *"What's the weather in Tokyo, in Fahrenheit?"*
-2. **Watch the stream:** tokens appear live; a `get_weather` tool-call line
-   interrupts the stream, then a `convert_to_fahrenheit` call, then the final
-   answer — all in one run.
+   *"Analyze the last month of weather in Tokyo — average high and low, the
+   rainiest day, and whether it's warming or cooling."*
+2. **Watch the stream:** tokens appear live; the agent fetches Tokyo's
+   history, then writes a Python script — tool-call lines interrupt the
+   stream, the script runs in the Monty sandbox, and its source + printed
+   output render as code blocks in the trace.
 3. **Open the Inngest dashboard** (AI → Runs) and point at the run view:
-   `llm-turn-0`, `tool-get_weather-0-0`, `llm-turn-1`... each a discrete,
+   `llm-turn-0`, `tool-get_weather_multi-0-0`, `llm-turn-1`,
+   `tool-run_python-1-0`, `llm-turn-2`... each a discrete,
    individually-addressable step.
 4. **The money shot:** "Every one of those boxes is a checkpoint. Kill the
    worker right now and the run resumes with exactly one step redone —
    everything else replays from memory."
-5. **Send a follow-up** (*"and London?"*) to show full conversation history
-   round-tripping.
+5. **Send a follow-up** (*"now compare that with London"*) to show full
+   conversation history round-tripping.
 
 ---
 
