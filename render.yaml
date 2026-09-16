@@ -1,0 +1,56 @@
+# Render blueprint for the token-streaming-agent example (see
+# token-streaming-agent/README.md). Both services build from the example
+# directory via rootDir; other examples in this monorepo are untouched.
+#
+# Deploy: Render dashboard → New → Blueprint → select this repo. You'll be
+# prompted once per unique secret (sync: false) below:
+#   - INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY — from app.inngest.com
+#   - ANTHROPIC_AUTH_TOKEN — an OpenRouter key (https://openrouter.ai/keys);
+#     the worker calls models through OpenRouter's Anthropic-compatible API.
+services:
+  # Next.js web app: chat UI, POST /api/chat, realtime token minting.
+  # Sends events + mints tokens only — never runs a step or calls a model.
+  - type: web
+    name: token-streaming-agent-web
+    runtime: docker
+    rootDir: token-streaming-agent
+    dockerfilePath: ./Dockerfile.web
+    plan: free
+    envVars:
+      # Sends chat/message.sent events to Inngest Cloud.
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      # Mints short-lived realtime subscription tokens for the browser.
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      # Do NOT set INNGEST_DEV here: unset means Inngest Cloud, which is
+      # what production wants.
+
+  # Bun Connect worker: runs the durable chat-agent function. Connect is an
+  # outbound WebSocket, so a portless background worker is exactly right.
+  - type: worker
+    name: token-streaming-agent-worker
+    runtime: docker
+    rootDir: token-streaming-agent
+    dockerfilePath: ./Dockerfile.worker
+    plan: starter
+    envVars:
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      # Score writes (inngest.score.experiment) go through the same client.
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      # OpenRouter serves the Anthropic Messages API; the SDK appends
+      # /v1/messages to this base URL and sends the auth token as a Bearer.
+      - key: ANTHROPIC_BASE_URL
+        value: https://openrouter.ai/api
+      - key: ANTHROPIC_AUTH_TOKEN
+        sync: false
+      # The chat-model experiment buckets sessions 50/50 Haiku vs Opus; the
+      # judge scores each run. Judge on Haiku keeps demo costs down.
+      - key: MODEL_HAIKU
+        value: anthropic/claude-haiku-4.5
+      - key: MODEL_OPUS
+        value: anthropic/claude-opus-4.8
+      - key: JUDGE_MODEL
+        value: anthropic/claude-haiku-4.5

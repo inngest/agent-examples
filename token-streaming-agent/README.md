@@ -82,6 +82,28 @@ Open http://localhost:3000 and send the demo prompt.
 The model API key (`ANTHROPIC_API_KEY`) is needed only on the worker side —
 the Next.js app never calls the model directly.
 
+## Deploy to Render
+
+A [`render.yaml`](../render.yaml) blueprint at the monorepo root defines both
+pieces: a **web service** (this Next.js app, Dockerfile.web) and a
+**background worker** (the Bun Connect worker, Dockerfile.worker — Connect is
+outbound-only, so the worker needs no port). The worker calls models through
+OpenRouter's Anthropic-compatible endpoint, so one OpenRouter key covers all
+model traffic; swap `MODEL_HAIKU` / `MODEL_OPUS` / `JUDGE_MODEL` in the
+blueprint to run any models OpenRouter serves.
+
+1. Render dashboard → **New → Blueprint** → select this repo and branch.
+2. When prompted for secrets, paste:
+   - `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` (app.inngest.com)
+   - `ANTHROPIC_AUTH_TOKEN` (an OpenRouter key, https://openrouter.ai/keys)
+3. Deploy, then verify: the worker logs print `Worker: connected`, the app
+   `token-streaming-agent` appears under Connect in Inngest Cloud, and the
+   demo prompt works end-to-end.
+
+Note the blueprint does **not** set `INNGEST_DEV` — unset means Inngest
+Cloud, which is what production wants. `INNGEST_APP_VERSION` defaults to
+Render's git sha automatically (see Dockerfile.worker).
+
 ## Demo prompt
 
 > What's the weather in Tokyo, in Fahrenheit?

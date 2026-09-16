@@ -1,0 +1,29 @@
+# Next.js web app: UI + /api/chat + /api/realtime-token. Never executes an
+# Inngest step and never calls the model — it only sends events and mints
+# realtime subscription tokens.
+#
+# Build with Bun (the repo's package manager, bun.lock), serve the Next
+# standalone output with Node.
+FROM oven/bun:1 AS build
+WORKDIR /app
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN bun run build
+
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# Standalone output: server.js plus only the traced node_modules.
+# (No public/ dir in this app — nothing else to copy.)
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+
+EXPOSE 3000
+CMD ["node", "server.js"]
