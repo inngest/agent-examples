@@ -121,22 +121,45 @@ Use verbatim; each is verifiably true in this repo.
 
 ## Demo script (60 seconds)
 
-1. **Open the deployed app.** Ask the demo prompt:
-   *"Analyze the last month of weather in Tokyo — average high and low, the
-   rainiest day, and whether it's warming or cooling."*
-2. **Watch the stream:** tokens appear live; the agent fetches Tokyo's
-   history, then writes a Python script — tool-call lines interrupt the
-   stream, the script runs in the Monty sandbox, and its source + printed
-   output render as code blocks in the trace.
+1. **Open the deployed app.** Click the first suggestion, *"Three-city weather
+   report"*:
+   *"Build a full weather report on Tokyo, Oslo, and Nairobi. Fetch all three,
+   then use Python to compute each city's average high, average low, and total
+   rainfall. Then run a second Python pass comparing the first and last two
+   weeks to see which cities are warming. Convert the single hottest reading to
+   Fahrenheit, check the local time in each city, and finish with a ranked
+   summary table."*
+2. **Watch the stream:** tokens appear live; the agent fetches all three
+   cities, then writes Python scripts — tool-call lines interrupt the stream,
+   each script runs in the Monty sandbox (marked **Sandboxed** in the UI), and
+   its source + printed output render as code blocks in the trace.
 3. **Open the Inngest dashboard** (AI → Runs) and point at the run view:
    `llm-turn-0`, `tool-get_weather_multi-0-0`, `llm-turn-1`,
-   `tool-run_python-1-0`, `llm-turn-2`... each a discrete,
-   individually-addressable step.
-4. **The money shot:** "Every one of those boxes is a checkpoint. Kill the
-   worker right now and the run resumes with exactly one step redone —
-   everything else replays from memory."
-5. **Send a follow-up** (*"now compare that with London"*) to show full
+   `tool-run_python-1-0`, `llm-turn-2`, `tool-run_python-2-0`, …,
+   `tool-convert_to_fahrenheit-*`, `tool-get_current_time-*` — each a discrete,
+   individually-addressable step, none of them declared in advance.
+4. **The money shot:** kill the worker during the second Python pass. "Every
+   one of those boxes is a checkpoint. The run resumes with exactly one step
+   redone — everything else replays from memory."
+5. **Send a follow-up** (*"now add London to the report"*) to show full
    conversation history round-tripping.
+
+### Long-running demo prompts
+
+Each names its steps so the model chains 5+ durable steps (the suggestion
+cards in the UI use these verbatim):
+
+- **Three-city weather report** — the demo prompt above.
+- **Pick a trip destination** — *"I'm choosing between Lisbon, Barcelona, and
+  Athens. Fetch their weather, use Python to score each on warmth, dryness, and
+  calm wind, then rerun the scoring with dryness weighted double and tell me
+  whether the winner changes. Check the local time in each, and recommend one
+  with a comparison table."*
+- **Five-city showdown** — *"Compare Tokyo, London, New York, Sydney, and Cape
+  Town. Fetch them all, use Python to find each city's hottest and wettest day,
+  then run a separate Python analysis of how humidity relates to rainfall in
+  each city. Convert every city's average high to Fahrenheit, and summarize the
+  three most surprising findings."*
 
 ---
 

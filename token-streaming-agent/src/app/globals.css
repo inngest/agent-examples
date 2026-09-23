@@ -984,6 +984,45 @@ h6.md-h {
   color: var(--faint);
 }
 
+.composer-hint svg {
+  vertical-align: -1px;
+}
+
+/* Sandbox markers: run_python lines, the live "Running in sandbox…" label,
+   and the empty-state note. */
+.sandbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0 2px;
+  padding: 0 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  border-radius: var(--r-sm);
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.sandbox-running {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+.sandbox-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 18px 0 0;
+  font-size: 0.78rem;
+  color: var(--faint);
+  text-align: center;
+}
+
 /* ---------------------------------------------------------------------------
    Narrow screens + reduced motion
    --------------------------------------------------------------------------- */

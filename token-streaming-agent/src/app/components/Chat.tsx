@@ -105,19 +105,23 @@ function modelLabel(m: ModelInfo): string {
 }
 
 const DEMO_PROMPT =
-  "Analyze the last month of weather in Tokyo — average high and low, the rainiest day, and whether it's warming or cooling.";
+  "Build a full weather report on Tokyo, Oslo, and Nairobi. Fetch all three, then use Python to compute each city's average high, average low, and total rainfall. Then run a second Python pass comparing the first and last two weeks to see which cities are warming. Convert the single hottest reading to Fahrenheit, check the local time in each city, and finish with a ranked summary table.";
 
-// Empty-state suggestion cards. The first is the canonical demo prompt (see
-// COPY.md); the others exercise the same weather/python/time tools.
+// Empty-state suggestion cards. Each is a deliberately multi-step prompt (see
+// COPY.md) that names its steps, so even a terse model chains several durable
+// steps — fetch, multiple sandboxed Python passes, conversions, time lookups —
+// and the run view shows a tall stack of checkpoints.
 const SUGGESTIONS: { title: string; prompt: string }[] = [
-  { title: "Analyze Tokyo's last month", prompt: DEMO_PROMPT },
+  { title: "Three-city weather report", prompt: DEMO_PROMPT },
   {
-    title: "Compare London and Paris",
-    prompt: "Compare this month's weather in London and Paris — which was warmer, and which was wetter?",
+    title: "Pick a trip destination",
+    prompt:
+      "I'm choosing between Lisbon, Barcelona, and Athens. Fetch their weather, use Python to score each on warmth, dryness, and calm wind, then rerun the scoring with dryness weighted double and tell me whether the winner changes. Check the local time in each, and recommend one with a comparison table.",
   },
   {
-    title: "Sydney vs. Cape Town, right now",
-    prompt: "What time is it in Sydney and Cape Town right now, and which one is warmer today?",
+    title: "Five-city showdown",
+    prompt:
+      "Compare Tokyo, London, New York, Sydney, and Cape Town. Fetch them all, use Python to find each city's hottest and wettest day, then run a separate Python analysis of how humidity relates to rainfall in each city. Convert every city's average high to Fahrenheit, and summarize the three most surprising findings.",
   },
 ];
 
@@ -135,6 +139,7 @@ const ICON_PATHS = {
   chevron: "M9 6l6 6-6 6",
   wrench:
     "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-3.8 3.8Z",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
   alert: "M12 8v5M12 16.5v.01M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
 } as const;
 
@@ -165,6 +170,20 @@ function Spark({ size = 16 }: { size?: number }) {
         d="M12 2c.5 4.6 2.4 7.3 5.3 8.6 1.3.6 2.9.9 4.7 1.4-1.8.5-3.4.8-4.7 1.4-2.9 1.3-4.8 4-5.3 8.6-.5-4.6-2.4-7.3-5.3-8.6C5.4 12.8 3.8 12.5 2 12c1.8-.5 3.4-.8 4.7-1.4C9.6 9.3 11.5 6.6 12 2Z"
       />
     </svg>
+  );
+}
+
+// Marks a run_python line: the model-written script ran in the isolated Monty
+// interpreter (src/worker/sandbox), not on the worker's host.
+function SandboxChip() {
+  return (
+    <span
+      className="sandbox-chip"
+      title="Runs in an isolated Python interpreter: no filesystem, network, or environment access"
+    >
+      <Icon name="shield" size={11} />
+      Sandboxed
+    </span>
   );
 }
 
@@ -362,7 +381,7 @@ const ToolDetail = memo(function ToolDetail({
       const { code, cities } = extractPython(input);
       return (
         <>
-          {label} ran{cities.length ? ` on ${cities.join(", ")}` : ""}:
+          {label} <SandboxChip /> ran{cities.length ? ` on ${cities.join(", ")}` : ""}:
           <pre className="md-pre tool-pre">
             <code>{clip(code, 4000)}</code>
           </pre>
@@ -392,6 +411,7 @@ const ToolDetail = memo(function ToolDetail({
 
 function TraceDetails({ trace }: { trace: TraceItem[] }) {
   const toolCalls = trace.filter((item) => item.type === "tool.called").length;
+  const sandboxed = trace.filter((item) => item.type === "tool.called" && item.name === "run_python").length;
   return (
     <details className="trace">
       <summary>
@@ -400,6 +420,7 @@ function TraceDetails({ trace }: { trace: TraceItem[] }) {
         </span>
         <Icon name="wrench" size={12} />
         {toolCalls > 0 ? `Used ${toolCalls} tool${toolCalls === 1 ? "" : "s"}` : "Agent trace"}
+        {sandboxed > 0 && ` · ${sandboxed} sandboxed`}
       </summary>
       <div className="trace-body">
         {trace.map((item, i) => {
@@ -1049,7 +1070,8 @@ export default function Chat() {
             </span>
             <h2>What should we dig into?</h2>
             <p>
-              The agent fetches weather data, writes Python to analyze it, and streams every token as it goes.
+              Multi-step analyses: the agent fetches data, runs sandboxed Python, and streams every token as each
+              durable step completes.
             </p>
             <div className="suggestions">
               {SUGGESTIONS.map((s) => (
@@ -1059,6 +1081,10 @@ export default function Chat() {
                 </button>
               ))}
             </div>
+            <p className="sandbox-note">
+              <Icon name="shield" size={12} />
+              Model-written Python runs in an isolated sandbox: no files, network, or secrets.
+            </p>
           </div>
         )}
 
@@ -1166,6 +1192,9 @@ export default function Chat() {
                                   input={l.input}
                                   output={l.kind === "result" ? l.detail : undefined}
                                 />
+                                {pending && l.name === "run_python" && (
+                                  <span className="shimmer sandbox-running">Running in sandbox…</span>
+                                )}
                               </div>
                             </div>
                           );
@@ -1245,7 +1274,9 @@ export default function Chat() {
             )}
           </div>
         </form>
-        <p className="composer-hint">Enter to send · Shift+Enter for a new line</p>
+        <p className="composer-hint">
+          <Icon name="shield" size={11} /> Python runs in an isolated sandbox · Enter to send · Shift+Enter for a new line
+        </p>
       </div>
     </div>
   );

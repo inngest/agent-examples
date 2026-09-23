@@ -108,12 +108,12 @@ Render's git sha automatically (see Dockerfile.worker).
 
 ## Demo prompt
 
-> Analyze the last month of weather in Tokyo — average high and low, the rainiest day, and whether it's warming or cooling.
+> Build a full weather report on Tokyo, Oslo, and Nairobi. Fetch all three, then use Python to compute each city's average high, average low, and total rainfall. Then run a second Python pass comparing the first and last two weeks to see which cities are warming. Convert the single hottest reading to Fahrenheit, check the local time in each city, and finish with a ranked summary table.
 
-This exercises the full agent loop across several turns: the model fetches
-Tokyo's history and then writes a Python script (`run_python`) to aggregate the
-30-day daily series — averages, the max-precipitation day, a warming/cooling
-trend — which runs in the [Monty](https://github.com/pydantic/monty) sandbox and
+This exercises the full agent loop across many turns: the model fetches all
+three cities' history, then writes Python scripts (`run_python`) to aggregate
+the 30-day daily series — averages, rainfall totals, a two-week warming
+comparison — then converts units and looks up local times. Each script runs in the [Monty](https://github.com/pydantic/monty) sandbox and
 prints its results back. Watch the tool-called/tool-result lines appear between
 streamed turns, with the **Python source and its printed output rendered as code
 blocks** in the trace; the run view in the Dev Server shows the `llm-turn-*`

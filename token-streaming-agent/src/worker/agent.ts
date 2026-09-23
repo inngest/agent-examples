@@ -24,7 +24,7 @@ const BATCH_MS = 40;
 
 // Belt-and-suspenders against a runaway tool-use loop (e.g. a model that
 // never stops calling tools) — bounds both cost and worst-case run time.
-const MAX_TURNS = 8;
+const MAX_TURNS = 12;
 
 // Per-response output cap sent as the API `max_tokens`. Configurable so it can
 // be tuned per deployment; also published on `turn.completed` (as `maxTokens`)
