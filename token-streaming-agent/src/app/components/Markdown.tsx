@@ -9,7 +9,8 @@ import { createElement, memo, type ReactNode } from "react";
 // hrefs are still scheme-checked (sanitizeHref) as defense in depth.
 //
 // Scope is deliberately the LLM-common subset — headings, fenced/inline code,
-// unordered/ordered lists, blockquotes, horizontal rules, bold/italic, links.
+// unordered/ordered lists, blockquotes, horizontal rules, GFM tables,
+// bold/italic, links.
 // Underscore emphasis (_x_ / __x__) is intentionally *not* treated as emphasis
 // so snake_case tool names like get_weather_multi survive intact; use asterisks
 // for bold/italic. Unclosed spans/fences degrade gracefully, which matters
@@ -51,6 +52,36 @@ function isBlockStart(line: string): boolean {
   );
 }
 
+// GFM table delimiter row: `|---|:--:|---:|` (outer pipes optional, at least
+// one `-` per cell).
+const TABLE_DELIM_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+// A table starts at a pipe-bearing header line directly followed by a
+// delimiter row. Needs lookahead, so it's checked separately from isBlockStart.
+function isTableStart(lines: string[], i: number): boolean {
+  return lines[i].includes("|") && i + 1 < lines.length && TABLE_DELIM_RE.test(lines[i + 1]);
+}
+
+// Split a table row into trimmed cells: drop the optional outer pipes, split on
+// pipes not escaped as `\|` (which unescape to a literal pipe).
+function splitRow(line: string): string[] {
+  let t = line.trim();
+  if (t.startsWith("|")) t = t.slice(1);
+  if (t.endsWith("|") && !t.endsWith("\\|")) t = t.slice(0, -1);
+  return t.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+}
+
+type Align = "left" | "center" | "right" | undefined;
+
+function cellAlign(delim: string): Align {
+  const left = delim.startsWith(":");
+  const right = delim.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  if (left) return "left";
+  return undefined;
+}
+
 function renderBlocks(source: string): ReactNode[] {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
@@ -80,6 +111,49 @@ function renderBlocks(source: string): ReactNode[] {
         <pre key={key++} className="md-pre">
           <code>{code.join("\n")}</code>
         </pre>,
+      );
+      continue;
+    }
+
+    // GFM table — header row, delimiter row, then body rows until a line with
+    // no pipe (or a blank line). Rows are padded/truncated to the header width.
+    // While streaming, a header without its delimiter yet renders as a
+    // paragraph for a frame, then snaps into a table.
+    if (isTableStart(lines, i)) {
+      const header = splitRow(lines[i]);
+      const aligns = splitRow(lines[i + 1]).map(cellAlign);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim() !== "" && lines[i].includes("|")) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      const k = key++;
+      blocks.push(
+        <div key={k} className="md-table-wrap">
+          <table className="md-table">
+            <thead>
+              <tr>
+                {header.map((h, c) => (
+                  <th key={c} style={aligns[c] ? { textAlign: aligns[c] } : undefined}>
+                    {parseSpans(h, `t${k}-h${c}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, r) => (
+                <tr key={r}>
+                  {header.map((_, c) => (
+                    <td key={c} style={aligns[c] ? { textAlign: aligns[c] } : undefined}>
+                      {parseSpans(row[c] ?? "", `t${k}-${r}-${c}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
       );
       continue;
     }
@@ -161,7 +235,12 @@ function renderBlocks(source: string): ReactNode[] {
     // Paragraph — gather consecutive text lines until a blank line or the start
     // of another block; single newlines inside become soft <br/> breaks.
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() !== "" && !isBlockStart(lines[i])) {
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !isBlockStart(lines[i]) &&
+      !(para.length > 0 && isTableStart(lines, i))
+    ) {
       para.push(lines[i]);
       i++;
     }

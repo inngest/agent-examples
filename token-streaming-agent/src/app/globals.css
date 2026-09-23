@@ -592,6 +592,42 @@ h6.md-h {
   color: var(--muted);
 }
 
+.md-table-wrap {
+  margin: 0 0 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  line-height: 1.45;
+}
+
+.md-table th,
+.md-table td {
+  padding: 7px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.md-table th {
+  font-weight: 600;
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+
+.md-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.md-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+}
+
 .md-hr {
   border: none;
   border-top: 1px solid var(--border);
