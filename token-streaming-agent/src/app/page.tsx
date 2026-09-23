@@ -1,13 +1,7 @@
 import Chat from "./components/Chat";
 
+// Chat renders the whole shell (top bar, transcript, composer) so the New chat
+// control and the composer can share its state without crossing components.
 export default function Home() {
-  return (
-    <main className="page">
-      <header className="page-header">
-        <h1>token-streaming-agent</h1>
-        <p>LLM tokens streamed live over Inngest Realtime, from a Connect worker to this browser.</p>
-      </header>
-      <Chat />
-    </main>
-  );
+  return <Chat />;
 }

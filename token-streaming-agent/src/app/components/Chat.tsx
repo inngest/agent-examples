@@ -107,6 +107,70 @@ function modelLabel(m: ModelInfo): string {
 const DEMO_PROMPT =
   "Analyze the last month of weather in Tokyo — average high and low, the rainiest day, and whether it's warming or cooling.";
 
+// Empty-state suggestion cards. The first is the canonical demo prompt (see
+// COPY.md); the others exercise the same weather/python/time tools.
+const SUGGESTIONS: { title: string; prompt: string }[] = [
+  { title: "Analyze Tokyo's last month", prompt: DEMO_PROMPT },
+  {
+    title: "Compare London and Paris",
+    prompt: "Compare this month's weather in London and Paris — which was warmer, and which was wetter?",
+  },
+  {
+    title: "Sydney vs. Cape Town, right now",
+    prompt: "What time is it in Sydney and Cape Town right now, and which one is warmer today?",
+  },
+];
+
+// Inline SVG icons (stroke-based, 24px grid) so the UI needs no icon library.
+// They inherit `currentColor`, so CSS drives their color per state.
+const ICON_PATHS = {
+  plus: "M12 5v14M5 12h14",
+  arrowUp: "M12 19V5M5 12l7-7 7 7",
+  thumbUp:
+    "M7 10v11M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.6l-2.3 7A2 2 0 0 1 17.5 21H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9Z",
+  thumbDown:
+    "M17 14V3M9 18.1 10 14H4.2a2 2 0 0 1-1.9-2.6l2.3-7A2 2 0 0 1 6.5 3H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-2.8a2 2 0 0 0-1.8 1.1L12 22a3.1 3.1 0 0 1-3-3.9Z",
+  copy: "M8 8h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8ZM16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3",
+  check: "M5 12.5 10 17.5 19 7",
+  chevron: "M9 6l6 6-6 6",
+  wrench:
+    "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-3.8 3.8Z",
+  alert: "M12 8v5M12 16.5v.01M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+} as const;
+
+function Icon({ name, size = 16 }: { name: keyof typeof ICON_PATHS; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={ICON_PATHS[name]} />
+    </svg>
+  );
+}
+
+// The assistant's avatar / the app's logo mark: a four-point spark.
+function Spark({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 2c.5 4.6 2.4 7.3 5.3 8.6 1.3.6 2.9.9 4.7 1.4-1.8.5-3.4.8-4.7 1.4-2.9 1.3-4.8 4-5.3 8.6-.5-4.6-2.4-7.3-5.3-8.6C5.4 12.8 3.8 12.5 2 12c1.8-.5 3.4-.8 4.7-1.4C9.6 9.3 11.5 6.6 12 2Z"
+      />
+    </svg>
+  );
+}
+
+// Max composer height before the textarea scrolls internally (~8 lines).
+const COMPOSER_MAX_HEIGHT = 200;
+
 // localStorage persistence so a conversation survives reloads and Inngest
 // timeouts: the URL carries `?session=<id>` and the transcript is stored
 // under `chat:<id>`. localStorage never expires on its own, so every load
@@ -210,7 +274,7 @@ function ContextMeter({ usage }: { usage: ContextUsage }) {
       title={`${used.toLocaleString()} of ${usable.toLocaleString()} usable tokens (${reserved.toLocaleString()} reserved for output)`}
     >
       <span className="context-meter-label">
-        Context · {formatTokens(used)} / {formatTokens(usable)}
+        {formatTokens(used)} / {formatTokens(usable)}
       </span>
       <div className={`context-meter-track${high ? " high" : ""}`}>
         <div className="context-meter-fill" style={{ width: `${(fraction * 100).toFixed(2)}%` }} />
@@ -331,7 +395,11 @@ function TraceDetails({ trace }: { trace: TraceItem[] }) {
   return (
     <details className="trace">
       <summary>
-        Agent trace · {toolCalls} tool call{toolCalls === 1 ? "" : "s"}
+        <span className="trace-chevron">
+          <Icon name="chevron" size={12} />
+        </span>
+        <Icon name="wrench" size={12} />
+        {toolCalls > 0 ? `Used ${toolCalls} tool${toolCalls === 1 ? "" : "s"}` : "Agent trace"}
       </summary>
       <div className="trace-body">
         {trace.map((item, i) => {
@@ -395,6 +463,10 @@ export default function Chat() {
   // run settles or a new send starts.
   const [resumedRun, setResumedRun] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Transcript index of the reply whose text was just copied (drives the
+  // brief "Copied" check state on its copy button).
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   // See the resume valve effect below for how these two interact.
   const resumedPendingRef = useRef(false);
   const liveMessageCountRef = useRef(0);
@@ -829,6 +901,25 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript, turns, toolLines]);
 
+  // Auto-grow the composer: reset to auto so it can shrink, then fit content
+  // up to COMPOSER_MAX_HEIGHT (past that it scrolls internally).
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+  }, [input]);
+
+  async function copyReply(index: number, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((c) => (c === index ? null : c)), 1500);
+    } catch {
+      // Clipboard unavailable (insecure context / denied) — nothing to show.
+    }
+  }
+
   async function send(prompt: string) {
     const text = prompt.trim();
     if (!text || running) return;
@@ -927,145 +1018,235 @@ export default function Chat() {
     window.location.assign(window.location.pathname);
   }
 
+  const liveUsage = latestUsage ?? contextUsage;
+  const isEmpty = transcript.length === 0 && turns.length === 0 && !running && !errorBanner;
+
   return (
-    <div className="chat">
-      <div className="chat-toolbar">
-        <button type="button" className="new-chat" onClick={newSession}>
-          New chat
-        </button>
-      </div>
-      <div className="chat-scroll">
-        {transcript.length === 0 && turns.length === 0 && (
+    <div className="app">
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div className="brand">
+            <span className="brand-mark">
+              <Spark size={14} />
+            </span>
+            <div className="brand-text">
+              <h1>Token Streaming Agent</h1>
+              <p>Live tokens over Inngest Realtime. Durable steps underneath.</p>
+            </div>
+          </div>
+          <button type="button" className="ghost-btn" onClick={newSession} title="Start a new conversation">
+            <Icon name="plus" size={15} />
+            <span>New chat</span>
+          </button>
+        </div>
+      </header>
+
+      <main className="thread">
+        {isEmpty && (
           <div className="empty-state">
-            <p>No messages yet. Try the demo prompt:</p>
-            <button className="demo-prompt" onClick={() => send(DEMO_PROMPT)} disabled={running}>
-              {DEMO_PROMPT}
-            </button>
+            <span className="empty-mark">
+              <Spark size={22} />
+            </span>
+            <h2>What should we dig into?</h2>
+            <p>
+              The agent fetches weather data, writes Python to analyze it, and streams every token as it goes.
+            </p>
+            <div className="suggestions">
+              {SUGGESTIONS.map((s) => (
+                <button key={s.title} type="button" className="suggestion" onClick={() => send(s.prompt)}>
+                  <span className="suggestion-title">{s.title}</span>
+                  <span className="suggestion-prompt">{s.prompt}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        {transcript.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}`}>
-            {m.role === "assistant" ? <Markdown text={m.content} /> : m.content}
-            {m.trace && m.trace.length > 0 && <TraceDetails trace={m.trace} />}
-            {m.role === "assistant" && m.eventId && (
-              <div className="feedback" role="group" aria-label="Rate this response">
-                <button
-                  type="button"
-                  className={`feedback-btn${m.feedback === "up" ? " selected" : ""}`}
-                  aria-pressed={m.feedback === "up"}
-                  title="Helpful"
-                  onClick={() => sendFeedback(i, "up")}
-                >
-                  👍
-                </button>
-                <button
-                  type="button"
-                  className={`feedback-btn${m.feedback === "down" ? " selected" : ""}`}
-                  aria-pressed={m.feedback === "down"}
-                  title="Not helpful"
-                  onClick={() => sendFeedback(i, "down")}
-                >
-                  👎
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {turns.map((turn) => (
-          <div key={turn.turn}>
-            {(turn.text || turn.streaming) && (
-              <div className="bubble assistant">
-                {/* Render plain text while streaming — the Markdown renderer
-                    re-parses the whole turn on every ~40ms token batch, which is
-                    wasted work (and an OOM risk on a long/runaway reply) frame
-                    after frame. Format once the turn settles. The bubble's
-                    white-space: pre-wrap keeps newlines readable meanwhile. */}
-                {turn.streaming ? turn.text : <Markdown text={turn.text} />}
-                {turn.streaming && <span className="caret" />}
-              </div>
-            )}
-            {toolLines
-              .filter((l) => l.turn === turn.turn)
-              .map((l, i) => (
-                <div key={i} className={`tool-line ${l.kind}`}>
-                  <ToolDetail
-                    name={l.name}
-                    kind={l.kind}
-                    input={l.input}
-                    output={l.kind === "result" ? l.detail : undefined}
-                  />
+        {transcript.map((m, i) =>
+          m.role === "user" ? (
+            <div key={i} className="msg user">
+              <div className="user-bubble">{m.content}</div>
+            </div>
+          ) : (
+            <div key={i} className="msg assistant">
+              <span className="avatar">
+                <Spark size={13} />
+              </span>
+              <div className="assistant-body">
+                <Markdown text={m.content} />
+                {m.trace && m.trace.length > 0 && <TraceDetails trace={m.trace} />}
+                <div className="msg-actions">
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    title={copiedIndex === i ? "Copied" : "Copy"}
+                    aria-label="Copy response"
+                    onClick={() => copyReply(i, m.content)}
+                  >
+                    <Icon name={copiedIndex === i ? "check" : "copy"} size={15} />
+                  </button>
+                  {m.eventId && (
+                    <div className="feedback" role="group" aria-label="Rate this response">
+                      <button
+                        type="button"
+                        className={`icon-btn feedback-btn up${m.feedback === "up" ? " selected" : ""}`}
+                        aria-pressed={m.feedback === "up"}
+                        title="Helpful"
+                        onClick={() => sendFeedback(i, "up")}
+                      >
+                        <Icon name="thumbUp" size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`icon-btn feedback-btn down${m.feedback === "down" ? " selected" : ""}`}
+                        aria-pressed={m.feedback === "down"}
+                        title="Not helpful"
+                        onClick={() => sendFeedback(i, "down")}
+                      >
+                        <Icon name="thumbDown" size={15} />
+                      </button>
+                    </div>
+                  )}
                 </div>
-              ))}
-          </div>
-        ))}
+              </div>
+            </div>
+          ),
+        )}
 
-        {/* Pending indicator: a run is in flight but nothing has rendered yet.
-            This is the gap the user sees on a slow link — the socket is
-            connected and pulling data, but no token/tool line has landed. On a
-            reload/reconnect it reads as "Reconnecting…" (re-syncing an existing
-            run); on a fresh send, "Working…". Hidden the instant any live
-            content arrives (turns.length > 0) or the run errors. */}
-        {running && turns.length === 0 && !errorBanner && (
-          <div className="bubble assistant syncing" aria-live="polite">
-            <span className="typing-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
+        {/* The in-flight run: one assistant row holding every live turn's text
+            and tool lines. Before anything has streamed it shows the pending
+            indicator — "Reconnecting…" when re-syncing a run picked back up
+            from storage, "Working…" on a fresh send. */}
+        {(turns.length > 0 || (running && !errorBanner)) && (
+          <div className="msg assistant live">
+            <span className={`avatar${running ? " live" : ""}`}>
+              <Spark size={13} />
             </span>
-            <span className="syncing-label">{resumedRun ? "Reconnecting…" : "Working…"}</span>
+            <div className="assistant-body">
+              {turns.length === 0 && (
+                <div className="pending" aria-live="polite">
+                  <span className="typing-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="shimmer">{resumedRun ? "Reconnecting…" : "Working…"}</span>
+                </div>
+              )}
+              {turns.map((turn) => {
+                const lines = toolLines.filter((l) => l.turn === turn.turn);
+                return (
+                  <div key={turn.turn} className="live-turn">
+                    {(turn.text || turn.streaming) && (
+                      <div className="live-text">
+                        {/* Render plain text while streaming — the Markdown renderer
+                            re-parses the whole turn on every ~40ms token batch, which is
+                            wasted work (and an OOM risk on a long/runaway reply) frame
+                            after frame. Format once the turn settles. The container's
+                            white-space: pre-wrap keeps newlines readable meanwhile. */}
+                        {turn.streaming ? turn.text : <Markdown text={turn.text} />}
+                        {turn.streaming && <span className="caret" />}
+                      </div>
+                    )}
+                    {lines.length > 0 && (
+                      <div className="live-tools">
+                        {lines.map((l, i) => {
+                          // Display-only pairing: the k-th call of a tool in this turn
+                          // is still running until its k-th result has arrived.
+                          const nth = lines.slice(0, i).filter((o) => o.kind === "called" && o.name === l.name).length;
+                          const results = lines.filter((o) => o.kind === "result" && o.name === l.name).length;
+                          const pending = running && l.kind === "called" && nth >= results;
+                          return (
+                            <div key={i} className={`tool-line ${l.kind}${pending ? " pending" : ""}`}>
+                              {pending && <span className="spinner" aria-label="Running" />}
+                              <div className="tool-line-body">
+                                <ToolDetail
+                                  name={l.name}
+                                  kind={l.kind}
+                                  input={l.input}
+                                  output={l.kind === "result" ? l.detail : undefined}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
         {errorBanner && (
-          <div className="error-line">
-            Run failed: {errorBanner.message}
-            {errorBanner.trace.length > 0 && <TraceDetails trace={errorBanner.trace} />}
+          <div className="notice error" role="alert">
+            <Icon name="alert" size={16} />
+            <div className="notice-body">
+              <strong>Run failed</strong>
+              <span>{errorBanner.message}</span>
+              {errorBanner.trace.length > 0 && <TraceDetails trace={errorBanner.trace} />}
+            </div>
           </div>
         )}
 
-        <div ref={bottomRef} />
+        <div ref={bottomRef} className="scroll-anchor" />
+      </main>
+
+      <div className="composer-dock">
+        <form
+          className="composer"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(input);
+          }}
+        >
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter sends, Shift+Enter inserts a newline; skip while an IME
+              // composition is open so confirming a candidate doesn't send.
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                send(input);
+              }
+            }}
+            placeholder={running ? "Waiting for the agent…" : "Ask about the weather anywhere…"}
+            disabled={running}
+            aria-label="Message"
+          />
+          <div className="composer-footer">
+            <div className="composer-meta">
+              {/* Which model this session is talking to (sticky per session).
+                  Shown once known — live from run.started, or restored. */}
+              {currentModel && (
+                <span className="model-badge" title={currentModel.model ? `Model: ${currentModel.model}` : undefined}>
+                  <span className={`model-badge-dot${running ? " live" : ""}`} />
+                  {modelLabel(currentModel)}
+                </span>
+              )}
+              {/* Live value beats the persisted one mid-run; hidden until the
+                  first turn reports usage. */}
+              {liveUsage && <ContextMeter usage={liveUsage} />}
+            </div>
+            {/* While a run is in flight Send becomes Stop, which cancels it
+                durably (cancelOn). Between runs it's the normal submit. */}
+            {running ? (
+              <button type="button" className="send-btn stop" onClick={cancelRun} title="Stop" aria-label="Stop">
+                <span className="stop-square" />
+              </button>
+            ) : (
+              <button type="submit" className="send-btn" disabled={!input.trim()} title="Send" aria-label="Send">
+                <Icon name="arrowUp" size={16} />
+              </button>
+            )}
+          </div>
+        </form>
+        <p className="composer-hint">Enter to send · Shift+Enter for a new line</p>
       </div>
-
-      {/* Which model this session is talking to (sticky per session). Shown
-          once known — live from run.started, or restored from storage. */}
-      {currentModel && (
-        <div className="model-badge" title={currentModel.model ? `Model: ${currentModel.model}` : undefined}>
-          <span className={`model-badge-dot${running ? " live" : ""}`} />
-          Model · {modelLabel(currentModel)}
-        </div>
-      )}
-
-      {/* Live value beats the persisted one mid-run; hidden entirely until
-          the first turn reports usage. */}
-      {(latestUsage ?? contextUsage) && <ContextMeter usage={(latestUsage ?? contextUsage)!} />}
-
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(input);
-        }}
-      >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={running ? "Waiting for the agent…" : "Ask something…"}
-          disabled={running}
-        />
-        {/* While a run is in flight the Send button becomes a Stop button that
-            cancels it durably (cancelOn). Between runs it's the normal submit. */}
-        {running ? (
-          <button type="button" className="stop" onClick={cancelRun}>
-            Stop
-          </button>
-        ) : (
-          <button type="submit" disabled={!input.trim()}>
-            Send
-          </button>
-        )}
-      </form>
     </div>
   );
 }
