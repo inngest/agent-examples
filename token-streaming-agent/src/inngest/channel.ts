@@ -8,7 +8,7 @@ import type OpenAI from "openai";
 // turn. `seq` is a per-turn counter starting at 0 — the UI groups by `turn`
 // and orders by `seq`, and treats a re-appearing `seq: 0` as a replay (the
 // turn's step was retried, so its buffer should be reset and re-built).
-export type TokenMessage = { turn: number; seq: number; delta: string };
+export type TokenMessage = { eventId: string; turn: number; seq: number; delta: string };
 
 // Snapshot of context-window occupancy after one model turn. `inputTokens`
 // covers the system prompt, tools, and full history; adding `outputTokens`
@@ -25,7 +25,13 @@ export type ContextUsage = {
 
 // Lifecycle/status events, published durably (`step.realtime.publish`) so
 // they survive worker restarts and are never duplicated or dropped.
-export type StatusMessage =
+//
+// Every message (tokens and status) carries `eventId` — the run's triggering
+// event id, which /api/chat returns to the browser. The channel is per
+// *session*, not per run, so without it a cancelled run's still-streaming step
+// (or a late `run.cancelled`) would bleed into the next run's live view. The
+// client drops any message whose `eventId` isn't the run it's waiting on.
+export type StatusMessage = { eventId: string } & (
   // Carries which experiment variant/model this run picked (sticky per
   // session) so the UI can show what model is currently answering.
   | { type: "run.started"; variant: string; model: string }
@@ -42,7 +48,8 @@ export type StatusMessage =
   // from `run.failed` so the UI settles to a neutral "stopped" state, not an
   // error. Carries no text — a cancelled run has no durable final answer; the
   // client keeps whatever partial text it already streamed.
-  | { type: "run.cancelled" };
+  | { type: "run.cancelled" }
+);
 
 // One channel per chat session, with two topics: high-frequency token deltas
 // and low-frequency lifecycle status. Subscribers pick a session by calling

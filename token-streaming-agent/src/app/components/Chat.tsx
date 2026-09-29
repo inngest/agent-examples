@@ -206,8 +206,23 @@ const RESUME_GIVE_UP_MS = 30_000;
 // safety net. Whichever delivers the finished reply first — realtime or a
 // poll — commits it (guarded so it happens at most once). This makes a dropped
 // connection or a mid-run reload recover the reply instead of losing it.
-const POLL_INTERVAL_MS = 2_000;
-const POLL_MAX_ATTEMPTS = 60; // ~2 minutes
+//
+// The run only reads as Completed once the post-answer judge scorers finish
+// (see worker/chat-function.ts), so a long multi-tool run can take minutes —
+// the poll backs off gently instead of giving up early, and the deadline is
+// only a runaway guard. A dropped socket or the tab regaining focus also
+// triggers an immediate poll (see `pollNowRef`) rather than waiting out the
+// backoff.
+const POLL_INITIAL_MS = 2_000;
+const POLL_MAX_MS = 10_000;
+const POLL_GIVE_UP_MS = 30 * 60 * 1000; // 30 minutes
+// How long send() waits for the realtime socket to open before firing the run,
+// so the first `run.started`/tokens aren't published into a socket that isn't
+// listening yet. Bounded so a broken socket still sends (the poll covers it).
+const CONNECT_WAIT_MS = 3_000;
+// Within this many px of the page bottom counts as "following" the stream —
+// live updates only autoscroll while the reader hasn't scrolled up.
+const STICK_TO_BOTTOM_PX = 200;
 
 type StoredSession = {
   savedAt: number;
@@ -505,6 +520,21 @@ export default function Chat() {
   // `cancelledText` can read the live partial reply without being a per-render
   // closure — keeps it a stable dep for the catch-up poll effect.
   const turnsRef = useRef<TurnView[]>([]);
+  // Set by the catch-up poll effect while a run is pending: polls right away
+  // (skipping the backoff wait). Called when the socket drops or the tab comes
+  // back into view — the moments realtime is most likely to have missed events.
+  const pollNowRef = useRef<(() => void) | null>(null);
+  // Mirrors `connectionStatus` (assigned below the hook) so send() can wait for
+  // the socket to open without re-binding on every status change.
+  const connectionStatusRef = useRef<string>("idle");
+  // Whether the reader is at (near) the bottom of the page. Updated on scroll;
+  // live updates only autoscroll while this is true.
+  const stickToBottomRef = useRef(true);
+  // Set when Stop is clicked before send() knows the run's event id (while it
+  // waits for the socket, or for /api/chat to return). send() checks it so a
+  // stopped send never starts a run — or, if the run was already sent, cancels
+  // it by id instead of letting the catch-up poll append its reply later.
+  const stopRequestedRef = useRef(false);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -552,7 +582,7 @@ export default function Chat() {
     });
   }, [restored, sessionId, transcript, contextUsage, running, pendingEventId, currentModel]);
 
-  const { messages, reset } = useRealtime({
+  const { messages, reset, connectionStatus } = useRealtime({
     channel: chatChannel(sessionId),
     topics: ["tokens", "status"],
     token: async () => {
@@ -571,7 +601,21 @@ export default function Chat() {
     // fully against the Dev Server. Unset (production/Cloud), the default
     // stands and behavior is unchanged.
     apiBaseUrl: process.env.NEXT_PUBLIC_INNGEST_BASE_URL,
+    // The hook keeps only the last 100 messages by default, but the view below
+    // is a fold over the *whole* run — a long answer is hundreds of token
+    // batches, which would evict earlier tool calls/results and turn.completed
+    // mid-run (vanishing turns, carets and spinners that never clear). reset()
+    // clears the log between runs, so unbounded is per-run.
+    historyLimit: null,
+    // The default tears the socket down whenever the tab is hidden, and realtime
+    // has no replay — everything published meanwhile (tool results, turn and
+    // run completion) would be lost. Stay connected while a run is in flight.
+    pauseOnHidden: false,
+    // Batch incoming messages into one `messages.all` update per 50ms so the
+    // fold below runs per batch, not per message.
+    bufferInterval: 50,
   });
+  connectionStatusRef.current = connectionStatus;
 
   // Resume valve: after restoring a pendingRun we re-subscribe, but realtime
   // doesn't replay history — if the run already finished while the page was
@@ -614,6 +658,11 @@ export default function Chat() {
 
     for (const msg of messages.all) {
       if (msg.kind !== "data") continue;
+      // The channel is per session, so drop anything from another run — e.g. a
+      // cancelled run's still-streaming step, or its late `run.cancelled`.
+      // Messages that land before /api/chat returns our id stay in the log and
+      // fold in once `pendingEventId` is known.
+      if (!pendingEventId || (msg.data as { eventId?: string }).eventId !== pendingEventId) continue;
 
       if (msg.topic === "tokens") {
         const { turn, seq, delta } = msg.data;
@@ -716,7 +765,7 @@ export default function Chat() {
       });
 
     return { turns, toolLines, runCompletedText, runNewMessages, runFailedError, runCancelled, trace, latestUsage, runModel };
-  }, [messages.all]);
+  }, [messages.all, pendingEventId]);
 
   // Mirror the freshly-derived turns into the ref so `cancelledText` (stable)
   // can read the current partial reply at cancel time.
@@ -867,11 +916,23 @@ export default function Chat() {
     if (!eventId || settledRef.current.has(eventId)) return;
 
     let cancelled = false;
-    let attempts = 0;
-    let timer: ReturnType<typeof setTimeout>;
+    let inFlight = false;
+    let delay = POLL_INITIAL_MS;
+    const deadline = Date.now() + POLL_GIVE_UP_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = () => {
+      clearTimeout(timer);
+      // Give up quietly past the deadline; realtime may still deliver, and the
+      // reply is recoverable on the next reload.
+      if (cancelled || Date.now() >= deadline) return;
+      timer = setTimeout(poll, delay);
+      delay = Math.min(POLL_MAX_MS, Math.round(delay * 1.5));
+    };
 
     const poll = async () => {
-      if (cancelled) return;
+      if (cancelled || inFlight) return;
+      inFlight = true;
       try {
         const res = await fetch(`/api/run-status?eventId=${encodeURIComponent(eventId)}`);
         if (res.ok) {
@@ -900,27 +961,73 @@ export default function Chat() {
         }
       } catch {
         // Transient — fall through to retry.
+      } finally {
+        inFlight = false;
       }
-      if (cancelled) return;
-      attempts += 1;
-      // Give up quietly at the cap; realtime may still deliver, and the reply
-      // is recoverable on the next reload.
-      if (attempts >= POLL_MAX_ATTEMPTS) return;
-      timer = setTimeout(poll, POLL_INTERVAL_MS);
+      schedule();
+    };
+
+    // Skip the wait and poll now (no-op while a poll is already in flight).
+    pollNowRef.current = () => {
+      if (cancelled || inFlight) return;
+      clearTimeout(timer);
+      void poll();
     };
 
     // First poll after one interval, giving the live path a chance to win on a
     // healthy connection.
-    timer = setTimeout(poll, POLL_INTERVAL_MS);
+    schedule();
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      pollNowRef.current = null;
     };
   }, [pendingEventId, commitReply, commitFailure, commitCancellation, cancelledText]);
 
+  // Realtime has no replay: if the socket drops mid-run (the hook reconnects on
+  // its own), whatever was published during the gap is gone — possibly
+  // `run.completed`. Poll right away instead of waiting out the backoff.
   useEffect(() => {
+    if (running && (connectionStatus === "closed" || connectionStatus === "error")) {
+      pollNowRef.current?.();
+    }
+  }, [connectionStatus, running]);
+
+  // Background tabs throttle timers (and may have dropped the socket), so the
+  // backoff can be well overdue by the time the reader comes back — check now.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") pollNowRef.current?.();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  // Track whether the reader is following the bottom of the thread. Our own
+  // scrollIntoView calls fire scroll events too, which keeps this true while
+  // following; scrolling up to read flips it off until they scroll back down.
+  useEffect(() => {
+    const onScroll = () => {
+      const el = document.documentElement;
+      stickToBottomRef.current = window.innerHeight + window.scrollY >= el.scrollHeight - STICK_TO_BOTTOM_PX;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // A new transcript entry (a send, or a committed reply) always scrolls, with a
+  // smooth animation — it's a discrete event.
+  useEffect(() => {
+    stickToBottomRef.current = true;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcript, turns, toolLines]);
+  }, [transcript.length]);
+
+  // Live stream updates land every ~50ms, so jump instantly (a smooth scroll
+  // restarted 20x/s janks) and only while the reader is following the bottom —
+  // never yank someone who scrolled up to read an earlier turn.
+  useEffect(() => {
+    if (stickToBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [turns, toolLines]);
 
   // Auto-grow the composer: reset to auto so it can shrink, then fit content
   // up to COMPOSER_MAX_HEIGHT (past that it scrolls internally).
@@ -951,6 +1058,7 @@ export default function Chat() {
     setInput("");
     setRunning(true);
     setResumedRun(false);
+    stopRequestedRef.current = false;
 
     // Expand each entry into the API messages it actually produced
     // (tool_use/tool_result blocks and all) rather than just its display
@@ -967,6 +1075,17 @@ export default function Chat() {
       ];
     });
 
+    // Subscribe before starting the run: `setRunning(true)` above enables the
+    // realtime hook, and the first `run.started`/tokens are only delivered to a
+    // socket that's already open. Bounded, so a broken socket still sends and
+    // the catch-up poll recovers the reply.
+    const waitUntil = Date.now() + CONNECT_WAIT_MS;
+    while (connectionStatusRef.current !== "open" && Date.now() < waitUntil) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // Stopped while waiting: the UI already settled; don't start the run.
+    if (stopRequestedRef.current) return;
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -978,11 +1097,21 @@ export default function Chat() {
       // (so it's rateable), persisted so a reload can recover the run, and it
       // drives the catch-up poll effect above.
       const { eventId } = (await res.json()) as { eventId?: string };
+      if (stopRequestedRef.current) {
+        // Stopped while /api/chat was in flight. The Stop click's cancel event
+        // may have landed before this run existed (cancelOn only tears down
+        // runs already in progress), so cancel again now that the run is real,
+        // and don't track it — the UI already settled to "stopped".
+        if (eventId) requestCancel(eventId);
+        return;
+      }
       setPendingEventId(eventId ?? null);
     } catch (err) {
       // The run never started, so no realtime message will ever unwind the
       // in-flight state — clear it here and surface the failure instead of
-      // leaving the composer disabled forever.
+      // leaving the composer disabled forever. Skipped if Stop already settled
+      // the UI — a failed send the user stopped isn't worth an error banner.
+      if (stopRequestedRef.current) return;
       setErrorBanner({ message: err instanceof Error ? err.message : String(err), trace: [] });
       setRunning(false);
     }
@@ -1019,15 +1148,20 @@ export default function Chat() {
   // cancel: /api/cancel sends `chat/cancel.requested`, which `cancelOn` uses to
   // tear the run down at its next step boundary. Fire-and-forget — the UI has
   // already settled; the event is what makes the worker actually stop.
-  function cancelRun() {
-    if (!running) return;
-    commitCancellation({ text: cancelledText(), eventId: pendingEventId ?? undefined });
-    reset();
+  function requestCancel(eventId?: string) {
     fetch("/api/cancel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify({ sessionId, eventId }),
     }).catch(() => {});
+  }
+
+  function cancelRun() {
+    if (!running) return;
+    stopRequestedRef.current = true;
+    commitCancellation({ text: cancelledText(), eventId: pendingEventId ?? undefined });
+    reset();
+    requestCancel(pendingEventId ?? undefined);
   }
 
   // Start a fresh conversation: navigate to a clean URL (no `?session=`), so the

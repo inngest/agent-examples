@@ -42,9 +42,10 @@ export const chatFn = inngest.createFunction(
     onFailure: async ({ event, error }) => {
       // The failed event wraps the original trigger at `event.data.event`.
       const sessionId = (event.data.event.data as { sessionId?: string })?.sessionId;
-      if (!sessionId) return;
+      const eventId = event.data.event.id;
+      if (!sessionId || !eventId) return;
       await inngest.realtime
-        .publish(chatChannel(sessionId).status, { type: "run.failed", error: error.message })
+        .publish(chatChannel(sessionId).status, { eventId, type: "run.failed", error: error.message })
         .catch(() => {});
     },
   },
@@ -58,8 +59,8 @@ export const chatFn = inngest.createFunction(
     // needs no renaming here; the raw slug is what surfaces in the UI.
     const { result, variant, experimentRef } = await group.experiment("weather-chat-bot", {
       variants: {
-        a: () => runChatAgent(step, sessionId, messages, MODEL_A, MODEL_A_CONTEXT_WINDOW, MODEL_A, logger),
-        b: () => runChatAgent(step, sessionId, messages, MODEL_B, MODEL_B_CONTEXT_WINDOW, MODEL_B, logger),
+        a: () => runChatAgent(step, sessionId, event.id!, messages, MODEL_A, MODEL_A_CONTEXT_WINDOW, MODEL_A, logger),
+        b: () => runChatAgent(step, sessionId, event.id!, messages, MODEL_B, MODEL_B_CONTEXT_WINDOW, MODEL_B, logger),
       },
       select: experiment.bucket(sessionId, { weights: { a: 50, b: 50 } }),
     });

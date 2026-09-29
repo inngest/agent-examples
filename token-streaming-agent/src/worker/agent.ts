@@ -88,6 +88,7 @@ type TurnResult = {
 async function streamTurn(
   step: Step,
   ch: Channel,
+  eventId: string,
   turn: number,
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   model: string,
@@ -116,7 +117,7 @@ async function streamTurn(
       // in flight (a serverless runtime may freeze the instance as soon as
       // the handler returns, silently dropping the tail of the stream).
       pending.push(
-        inngest.realtime.publish(ch.tokens, { turn, seq: seq++, delta }).catch(() => {}),
+        inngest.realtime.publish(ch.tokens, { eventId, turn, seq: seq++, delta }).catch(() => {}),
       );
     };
 
@@ -216,6 +217,9 @@ export type ToolCall = { name: string; input: unknown; argsRaw: string; parsedOk
 export async function runChatAgent(
   step: Step,
   sessionId: string,
+  // The run's triggering event id, stamped on every published message so the
+  // client can ignore messages from other runs on the same session channel.
+  eventId: string,
   history: ChatMessage[],
   model: string,
   contextWindow: number,
@@ -244,7 +248,7 @@ export async function runChatAgent(
   let lastNonEmptyText = "";
   const toolCalls: ToolCall[] = [];
 
-  await step.realtime.publish("run-started", ch.status, { type: "run.started", variant, model });
+  await step.realtime.publish("run-started", ch.status, { eventId, type: "run.started", variant, model });
   // Logs go through the Inngest ctx logger (passed from the handler), which
   // de-duplicates across step memoization/retries — plain console.log here
   // would repeat on every function resume.
@@ -252,7 +256,7 @@ export async function runChatAgent(
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
-      const response = await streamTurn(step, ch, turn, messages, model);
+      const response = await streamTurn(step, ch, eventId, turn, messages, model);
       const text = response.text;
       if (text.trim()) lastNonEmptyText = text;
 
@@ -281,6 +285,7 @@ export async function runChatAgent(
         const finalText = text ? text + marker : marker;
         messages.push({ role: "assistant", content: finalText });
         await step.realtime.publish(`turn-completed-${turn}`, ch.status, {
+          eventId,
           type: "turn.completed",
           turn,
           text,
@@ -288,6 +293,7 @@ export async function runChatAgent(
         });
         const newMessages = messages.slice(historyLength);
         await step.realtime.publish("run-completed", ch.status, {
+          eventId,
           type: "run.completed",
           text: finalText,
           newMessages,
@@ -315,6 +321,7 @@ export async function runChatAgent(
       );
 
       await step.realtime.publish(`turn-completed-${turn}`, ch.status, {
+        eventId,
         type: "turn.completed",
         turn,
         text,
@@ -332,6 +339,7 @@ export async function runChatAgent(
         const finalText = text.trim() ? text : lastNonEmptyText;
         const newMessages = messages.slice(historyLength);
         await step.realtime.publish("run-completed", ch.status, {
+          eventId,
           type: "run.completed",
           text: finalText,
           newMessages,
@@ -350,6 +358,7 @@ export async function runChatAgent(
 
         logger.info("agent: tool call", { turn, name: call.name, input: call.input });
         await step.realtime.publish(`tool-called-${turn}-${i}`, ch.status, {
+          eventId,
           type: "tool.called",
           turn,
           name: call.name,
@@ -361,6 +370,7 @@ export async function runChatAgent(
         );
 
         await step.realtime.publish(`tool-result-${turn}-${i}`, ch.status, {
+          eventId,
           type: "tool.result",
           turn,
           name: call.name,
@@ -380,6 +390,7 @@ export async function runChatAgent(
     const fallbackText = lastNonEmptyText || "(turn limit reached without a final response)";
     const newMessages = messages.slice(historyLength);
     await step.realtime.publish("run-completed", ch.status, {
+      eventId,
       type: "run.completed",
       text: fallbackText,
       newMessages,
