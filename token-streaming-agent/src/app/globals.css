@@ -1093,6 +1093,15 @@ h6.md-h {
     flex: none;
     min-width: 0;
   }
+
+  .slow-toggle-label {
+    display: none;
+  }
+
+  /* Extra class for specificity: the base rule comes later in the file. */
+  .slow-toggle .slow-toggle-label-short {
+    display: inline-flex;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1103,4 +1112,80 @@ h6.md-h {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* "Long-running tools" switch in the composer footer, and the elapsed timer on
+   a call the worker is deliberately holding. */
+.slow-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.74rem;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.slow-toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.slow-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.slow-toggle-track {
+  position: relative;
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--surface-3);
+  transition: background 0.15s ease;
+}
+
+.slow-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--fg) 12%, transparent);
+  transition: transform 0.15s ease;
+}
+
+.slow-toggle.on {
+  color: var(--fg);
+}
+
+/* Phones swap the text label for a clock glyph (see the narrow media query). */
+.slow-toggle-label-short {
+  display: none;
+}
+
+.slow-toggle.on .slow-toggle-track {
+  background: var(--accent);
+}
+
+.slow-toggle.on .slow-toggle-thumb {
+  transform: translateX(10px);
+}
+
+.slow-timer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }

@@ -19,6 +19,9 @@ type ToolLine = {
   name: string;
   detail: string;
   input?: unknown;
+  // Long-running mode only: how long the worker is deliberately holding this
+  // call (from `tool.called`), shown as an elapsed/expected timer.
+  delayMs?: number;
 };
 
 type TurnView = { turn: number; text: string; streaming: boolean };
@@ -141,6 +144,7 @@ const ICON_PATHS = {
     "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-3.8 3.8Z",
   shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
   alert: "M12 8v5M12 16.5v.01M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+  clock: "M12 7v5l3 2M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z",
 } as const;
 
 function Icon({ name, size = 16 }: { name: keyof typeof ICON_PATHS; size?: number }) {
@@ -186,6 +190,34 @@ function SandboxChip() {
     </span>
   );
 }
+
+// m:ss for the long-running call timer.
+function formatClock(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+// Elapsed/expected timer on a call the worker is deliberately holding
+// (long-running mode). Counts from when the line first rendered — i.e. when
+// `tool.called` arrived — so a minute-long wait reads as progress, not a hang.
+function SlowCallTimer({ delayMs }: { delayMs: number }) {
+  const [start] = useState(() => Date.now());
+  const [now, setNow] = useState(start);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="slow-timer">
+      <Icon name="clock" size={11} />
+      Long-running call · {formatClock(now - start)} / ~{formatClock(delayMs)}
+    </span>
+  );
+}
+
+// Per-browser preference for the "Long-running tools" switch. Deliberately not
+// under STORAGE_PREFIX, which pruneStaleSessions sweeps.
+const SLOW_TOOLS_KEY = "tsa:slowTools";
 
 // Max composer height before the textarea scrolls internally (~8 lines).
 const COMPOSER_MAX_HEIGHT = 200;
@@ -489,6 +521,10 @@ export default function Chat() {
   // `run.started` (live) or a catch-up poll, and persisted so it survives a
   // reload. Sticky per session, so once known it stays.
   const [currentModel, setCurrentModel] = useState<ModelInfo | null>(null);
+  // "Long-running tools": when on, the next run's data fetches and Python
+  // calls are held for 60–90s each (see SLOW_TOOLS in worker/agent.ts) to demo
+  // durable steps that take minutes. Applies per send; restored from storage.
+  const [slowTools, setSlowTools] = useState(false);
   // Storage restore happens in a mount effect (not the initializers) so the
   // server and client render the same empty first frame; `restored` gates the
   // save effect so an empty pre-restore state can't clobber the stored chat.
@@ -535,6 +571,25 @@ export default function Chat() {
   // stopped send never starts a run — or, if the run was already sent, cancels
   // it by id instead of letting the catch-up poll append its reply later.
   const stopRequestedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      setSlowTools(localStorage.getItem(SLOW_TOOLS_KEY) === "1");
+    } catch {
+      // Storage disabled — default off.
+    }
+  }, []);
+
+  function toggleSlowTools() {
+    setSlowTools((on) => {
+      try {
+        localStorage.setItem(SLOW_TOOLS_KEY, on ? "0" : "1");
+      } catch {
+        // Best-effort persistence.
+      }
+      return !on;
+    });
+  }
 
   useEffect(() => {
     if (!sessionId) return;
@@ -697,6 +752,7 @@ export default function Chat() {
               // stringifying its potentially large `code` on every fold pass.
               detail: status.name === "run_python" ? "" : JSON.stringify(status.input),
               input: status.input,
+              delayMs: status.delayMs,
             });
             traceRaw.push({ type: "tool.called", name: status.name, input: status.input });
             break;
@@ -1090,7 +1146,7 @@ export default function Chat() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, messages: wireMessages }),
+        body: JSON.stringify({ sessionId, messages: wireMessages, slowTools }),
       });
       if (!res.ok) throw new Error(`chat request failed: ${res.status}`);
       // Remember which event this run belongs to: it's stamped onto the reply
@@ -1329,6 +1385,7 @@ export default function Chat() {
                                 {pending && l.name === "run_python" && (
                                   <span className="shimmer sandbox-running">Running in sandbox…</span>
                                 )}
+                                {pending && l.delayMs ? <SlowCallTimer delayMs={l.delayMs} /> : null}
                               </div>
                             </div>
                           );
@@ -1383,6 +1440,25 @@ export default function Chat() {
           />
           <div className="composer-footer">
             <div className="composer-meta">
+              {/* Applies to the next send, so it's locked while a run is live. */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={slowTools}
+                className={`slow-toggle${slowTools ? " on" : ""}`}
+                onClick={toggleSlowTools}
+                disabled={running}
+                title="Hold data fetches and Python calls for 60–90s each, like slow external APIs"
+                aria-label="Long-running tools"
+              >
+                <span className="slow-toggle-track" aria-hidden="true">
+                  <span className="slow-toggle-thumb" />
+                </span>
+                <span className="slow-toggle-label">Long-running tools</span>
+                <span className="slow-toggle-label-short" aria-hidden="true">
+                  <Icon name="clock" size={12} />
+                </span>
+              </button>
               {/* Which model this session is talking to (sticky per session).
                   Shown once known — live from run.started, or restored. */}
               {currentModel && (

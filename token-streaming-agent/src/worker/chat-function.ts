@@ -50,8 +50,13 @@ export const chatFn = inngest.createFunction(
     },
   },
   async ({ event, step, group, defer, logger, runId }) => {
-    const { sessionId, messages } = event.data as { sessionId: string; messages: ChatMessage[] };
-    logger.info("chat-agent: run start", { runId, eventId: event.id, sessionId });
+    const { sessionId, messages, slowTools = false } = event.data as {
+      sessionId: string;
+      messages: ChatMessage[];
+      // The UI's "Long-running tools" switch — see SLOW_TOOLS in agent.ts.
+      slowTools?: boolean;
+    };
+    logger.info("chat-agent: run start", { runId, eventId: event.id, sessionId, slowTools });
 
     // Bucket by session so one conversation sticks with one model, and score
     // each run so the two arms become comparable in the dashboard. The arms are
@@ -59,8 +64,8 @@ export const chatFn = inngest.createFunction(
     // needs no renaming here; the raw slug is what surfaces in the UI.
     const { result, variant, experimentRef } = await group.experiment("weather-chat-bot", {
       variants: {
-        a: () => runChatAgent(step, sessionId, event.id!, messages, MODEL_A, MODEL_A_CONTEXT_WINDOW, MODEL_A, logger),
-        b: () => runChatAgent(step, sessionId, event.id!, messages, MODEL_B, MODEL_B_CONTEXT_WINDOW, MODEL_B, logger),
+        a: () => runChatAgent(step, sessionId, event.id!, messages, MODEL_A, MODEL_A_CONTEXT_WINDOW, MODEL_A, logger, slowTools),
+        b: () => runChatAgent(step, sessionId, event.id!, messages, MODEL_B, MODEL_B_CONTEXT_WINDOW, MODEL_B, logger, slowTools),
       },
       select: experiment.bucket(sessionId, { weights: { a: 50, b: 50 } }),
     });

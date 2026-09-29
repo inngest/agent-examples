@@ -121,6 +121,16 @@ steps each followed by a `tool-*` step (including `tool-run_python-*`).
 Send a follow-up afterward (e.g. "now compare that with London") to confirm the
 full conversation history round-trips correctly.
 
+**Long-running tools.** Flip the *Long-running tools* switch in the composer
+before sending and the worker holds every `get_weather`, `get_weather_multi`,
+and `run_python` call for 60–90s inside its durable step, like a slow external
+API (conversions and time lookups stay instant). The demo prompt then takes
+several minutes. The live view shows an elapsed timer on each held call. It's a
+good way to show durability: restart the worker mid-call, or close the tab and
+come back, and the run picks up where it left off. The switch is sent as
+`slowTools` on the `chat/message.sent` event (see `SLOW_TOOLS` in
+`src/worker/agent.ts`).
+
 ## Design notes
 
 **Channel/topic design.** One channel per session, `chat:{sessionId}`

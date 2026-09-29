@@ -5,7 +5,12 @@ import type { ChatMessage } from "../../../inngest/channel";
 // every request (see components/Chat.tsx). Simplest possible design for an
 // example — a real app would likely persist history server-side instead.
 export async function POST(req: Request) {
-  const { sessionId, messages } = (await req.json()) as { sessionId: string; messages: ChatMessage[] };
+  const { sessionId, messages, slowTools } = (await req.json()) as {
+    sessionId: string;
+    messages: ChatMessage[];
+    // "Long-running tools" switch: the worker holds slow tool calls for 60–90s.
+    slowTools?: boolean;
+  };
 
   if (!sessionId || !Array.isArray(messages)) {
     return Response.json({ error: "Expected { sessionId, messages }" }, { status: 400 });
@@ -13,7 +18,7 @@ export async function POST(req: Request) {
 
   const { ids } = await inngest.send({
     name: "chat/message.sent",
-    data: { sessionId, messages },
+    data: { sessionId, messages, slowTools: slowTools === true },
     // Session context (Inngest "Sessions"): groups every run of one
     // conversation under AI > Sessions in the dashboard — run counts,
     // failure rates, and per-conversation drill-down for eval debugging.

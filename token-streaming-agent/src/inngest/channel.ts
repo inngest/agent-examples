@@ -35,7 +35,10 @@ export type StatusMessage = { eventId: string } & (
   // Carries which experiment variant/model this run picked (sticky per
   // session) so the UI can show what model is currently answering.
   | { type: "run.started"; variant: string; model: string }
-  | { type: "tool.called"; turn: number; name: string; input: unknown }
+  // `delayMs` is set only in long-running mode (see SLOW_TOOLS in
+  // worker/agent.ts): how long this call is deliberately held, so the UI can
+  // show an elapsed/expected timer instead of what looks like a hang.
+  | { type: "tool.called"; turn: number; name: string; input: unknown; delayMs?: number }
   | { type: "tool.result"; turn: number; name: string; output: string }
   | { type: "turn.completed"; turn: number; text: string; usage: ContextUsage }
   // `newMessages` are the exact API messages the run appended (assistant

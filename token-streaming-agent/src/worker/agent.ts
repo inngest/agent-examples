@@ -56,6 +56,22 @@ function clipUiInput(value: unknown): unknown {
   return value;
 }
 
+// Long-running mode (the UI's "Long-running tools" switch): these tools are
+// held for a minute or more before they return, as if they were slow external
+// APIs. The data fetches and sandboxed Python are the slow ones; conversions and
+// time lookups stay instant, so a run mixes fast and slow durable steps.
+const SLOW_TOOLS = new Set(["get_weather", "get_weather_multi", "run_python"]);
+const SLOW_BASE_MS = 60_000;
+const SLOW_SPREAD_S = 31; // adds 0–30s on top of the base
+
+// Deterministic per call (derived from its position, not Math.random) so the
+// delay the UI is told about on `tool.called` always matches what the step
+// actually waits, even when the function replays around memoized steps.
+function slowDelayMs(name: string, turn: number, i: number): number {
+  if (!SLOW_TOOLS.has(name)) return 0;
+  return SLOW_BASE_MS + ((turn * 7 + i * 13) % SLOW_SPREAD_S) * 1000;
+}
+
 type Step = GetStepTools<typeof inngest>;
 type Channel = ReturnType<typeof chatChannel>;
 
@@ -225,6 +241,8 @@ export async function runChatAgent(
   contextWindow: number,
   variant: string,
   logger: Logger,
+  // Long-running mode: hold SLOW_TOOLS calls for 60–90s (see slowDelayMs).
+  slowTools = false,
 ): Promise<{ text: string; toolCalls: ToolCall[]; newMessages: ChatMessage[] }> {
   const ch = chatChannel(sessionId);
   // The worker owns the system prompt (the client transcript never includes
@@ -356,18 +374,25 @@ export async function runChatAgent(
           parsedOk: call.parsedOk,
         });
 
-        logger.info("agent: tool call", { turn, name: call.name, input: call.input });
+        const delayMs = slowTools ? slowDelayMs(call.name, turn, i) : 0;
+        logger.info("agent: tool call", { turn, name: call.name, input: call.input, delayMs });
         await step.realtime.publish(`tool-called-${turn}-${i}`, ch.status, {
           eventId,
           type: "tool.called",
           turn,
           name: call.name,
           input: clipUiInput(call.input),
+          ...(delayMs > 0 && { delayMs }),
         });
 
-        const output = await step.run(`tool-${call.name}-${turn}-${i}`, () =>
-          executeTool(call.name, call.input),
-        );
+        // The wait sits *inside* the step, like a slow upstream API would: the
+        // worker is busy for the whole call, and if it dies mid-wait the step
+        // retries. Once the step completes it's memoized, so a later replay
+        // returns the result instantly instead of waiting again.
+        const output = await step.run(`tool-${call.name}-${turn}-${i}`, async () => {
+          if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+          return executeTool(call.name, call.input);
+        });
 
         await step.realtime.publish(`tool-result-${turn}-${i}`, ch.status, {
           eventId,
