@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 import { NonRetriableError, type GetStepTools, type Logger } from "inngest";
-import { toolDefinitions, executeTool } from "./tools";
+import { toolDefinitions, executeTool, runPythonTool } from "./tools";
 import { openrouter } from "./openrouter";
 import { inngest } from "../inngest/client";
 import { chatChannel, type ChatMessage } from "../inngest/channel";
@@ -13,7 +13,7 @@ const SYSTEM_PROMPT = `You are a friendly assistant in a live chat UI.
 
 When a question involves current weather, temperature unit conversion, or the current date or time — including follow-up questions later in the conversation — call the matching tool (get_weather, get_weather_multi, convert_to_celsius, convert_to_fahrenheit, get_current_time) and answer from its result. get_weather reports Celsius; when the user wants Fahrenheit, follow it with convert_to_fahrenheit rather than converting yourself. For weather in several cities, you can call get_weather once per city or get_weather_multi with all of them at once. When one message asks about several independent things, call the tools in parallel in a single turn. Answer everything else directly from your own knowledge.
 
-When answering a weather question needs computation over the daily history — trends, averages or other aggregates, correlations, or filtering across the ~30-day series — call run_python with the relevant cities and a short script. The readings arrive as a variable \`weather\` (a list of the same objects get_weather_multi returns) and whatever your script prints comes back to you. This runs in a restricted interpreter: only the json, datetime, and re modules can be imported, and there are no third-party packages (no numpy or pandas), no classes, and no match statements — use plain loops, comprehensions, and builtins.
+When answering a weather question needs computation over the daily history — trends, averages or other aggregates, correlations, or filtering across the ~30-day series — call run_python with the relevant cities and a short script. The readings arrive as a variable \`weather\` (a list of the same objects get_weather_multi returns) and whatever your script prints comes back to you. It runs as Python 3.14 in an isolated sandbox with the full standard library (statistics, math, json, datetime, …) but no third-party packages (no numpy or pandas), and nothing can be installed.
 
 Keep replies short and conversational: a sentence or two, more only when the question genuinely needs it. The chat renders Markdown, so you may use light formatting — short lists, **bold**, \`code\`, and small tables — when it genuinely makes an answer clearer, but skip it for simple one- or two-line replies.`;
 
@@ -389,10 +389,23 @@ export async function runChatAgent(
         // worker is busy for the whole call, and if it dies mid-wait the step
         // retries. Once the step completes it's memoized, so a later replay
         // returns the result instantly instead of waiting again.
-        const output = await step.run(`tool-${call.name}-${turn}-${i}`, async () => {
-          if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
-          return executeTool(call.name, call.input);
-        });
+        //
+        // run_python is the exception: its sandbox create/exec/destroy are
+        // steps of their own, so the long-running delay gets a separate step
+        // ahead of them (the worker waits, not a live sandbox VM).
+        const stepId = `tool-${call.name}-${turn}-${i}`;
+        let output: string;
+        if (call.name === "run_python") {
+          if (delayMs > 0) {
+            await step.run(`${stepId}-delay`, () => new Promise((r) => setTimeout(r, delayMs)));
+          }
+          output = await runPythonTool(step, stepId, eventId, call.input);
+        } else {
+          output = await step.run(stepId, async () => {
+            if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+            return executeTool(call.name, call.input);
+          });
+        }
 
         await step.realtime.publish(`tool-result-${turn}-${i}`, ch.status, {
           eventId,

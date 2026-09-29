@@ -1,6 +1,6 @@
 import { connect } from "inngest/connect";
 import { inngest } from "../inngest/client";
-import { chatFn } from "./chat-function";
+import { chatFn, sandboxCleanupFn } from "./chat-function";
 import { feedbackScorer } from "./feedback-scorer";
 
 // How often to sample the connection's debug state. On a flaky link this is
@@ -19,9 +19,10 @@ const connectStartedAt = Date.now();
 // is registered only here, via Connect. Inngest pushes step invocations to
 // this worker over WebSocket, so no public ingress is required for the
 // function to run. `feedbackScorer` is registered here too so Connect knows to
-// run the deferred scorer `chatFn` enqueues via `defer(...)`.
+// run the deferred scorer `chatFn` enqueues via `defer(...)`, and
+// `sandboxCleanupFn` destroys sandboxes left behind by a cancelled run.
 const connection = await connect({
-  apps: [{ client: inngest, functions: [chatFn, feedbackScorer] }],
+  apps: [{ client: inngest, functions: [chatFn, feedbackScorer, sandboxCleanupFn] }],
   // Identifies this worker instance for horizontal scaling and rolling
   // deploys. Defaults to hostname if unset; in containers set this to the
   // container id.

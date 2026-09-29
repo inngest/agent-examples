@@ -211,8 +211,8 @@ function extractPythonAttempts(messages: ChatMessage[]): PythonAttempt[] {
 }
 
 // LLM-judge code quality: when the model wrote Python via run_python, grade how
-// good that code was — correct for the request, compatible with the Monty
-// sandbox's restricted Python, reading the injected `weather` rather than
+// good that code was — correct for the request, sticking to the standard
+// library the sandbox provides, reading the injected `weather` rather than
 // retyping data, and clear. The judge sees each script and whether it actually
 // executed. Returns null (skips the score) when no Python was run, so runs that
 // never needed analysis don't dilute the metric — mirroring scoreToolCallValidity.
@@ -233,14 +233,14 @@ export async function scorePythonCodeQuality(
 
   const rubric = `You are grading the QUALITY of Python code an assistant wrote to analyze weather data for a user request.
 
-The code runs in a restricted sandbox (Monty): only the json, datetime, and re standard-library modules are importable, there are NO third-party packages (no numpy, pandas, statistics), no classes, and no match statements. The weather readings are pre-injected as a variable \`weather\` — a list of { city, unit, current, daily: [{ date, highC, lowC, humidity, windKph, precipMm, condition }] } — so the code should read \`weather\` rather than hardcoding data, and print() its results.
+The code runs as Python 3.14 in an isolated sandbox with the full standard library (statistics, math, json, datetime, …) but NO third-party packages (no numpy or pandas). The weather readings are pre-injected as a variable \`weather\` — a list of { city, unit, current, daily: [{ date, highC, lowC, humidity, windKph, precipMm, condition }] } — so the code should read \`weather\` rather than hardcoding data, and print() its results.
 
 User request: ${prompt}
 
 Python the assistant ran:
 ${listing}
 
-Grade overall code quality on: (1) correctness — computes what the request needs and ran without error; (2) sandbox-compatibility — no forbidden imports/constructs (numpy/pandas/classes/match); (3) uses the injected \`weather\` variable instead of retyping data; (4) clarity — sensible loops/comprehensions and builtins, readable printed output. 1 = clean, correct, idiomatic sandbox-compatible code; 0 = broken, uses unavailable libraries, or hardcodes data.
+Grade overall code quality on: (1) correctness — computes what the request needs and ran without error; (2) sandbox-compatibility — standard library only, no third-party imports (numpy/pandas); (3) uses the injected \`weather\` variable instead of retyping data; (4) clarity — sensible use of builtins and the standard library, readable printed output. 1 = clean, correct, idiomatic standard-library code; 0 = broken, uses unavailable libraries, or hardcodes data.
 
 Reply with ONLY {"score": <0-1>, "reason": "<one sentence>"}.`;
   return judge(step, "python-code-quality", rubric);

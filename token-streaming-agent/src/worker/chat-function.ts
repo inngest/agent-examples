@@ -11,6 +11,7 @@ import {
 } from "./scorers";
 import { feedbackScorer } from "./feedback-scorer";
 import { chatChannel, type ChatMessage } from "../inngest/channel";
+import { destroyRunSandboxes } from "./sandbox";
 
 // The two experiment arms, A and B — all env-driven so any pair of OpenRouter
 // models can be swapped in without touching code. Both run through the same
@@ -43,6 +44,9 @@ export const chatFn = inngest.createFunction(
       // The failed event wraps the original trigger at `event.data.event`.
       const sessionId = (event.data.event.data as { sessionId?: string })?.sessionId;
       const eventId = event.data.event.id;
+      // A run that failed between a sandbox's create and destroy steps would
+      // otherwise leak that sandbox.
+      if (eventId) await destroyRunSandboxes(eventId);
       if (!sessionId || !eventId) return;
       await inngest.realtime
         .publish(chatChannel(sessionId).status, { eventId, type: "run.failed", error: error.message })
@@ -157,5 +161,24 @@ export const chatFn = inngest.createFunction(
       model: variant === "a" ? MODEL_A : MODEL_B,
       newMessages: result.newMessages,
     };
+  },
+);
+
+// cancelOn tears a run down without firing onFailure, so a Stop click during
+// run_python would leak its sandbox. This listens for the platform's
+// cancellation event for weather-agent and destroys that run's sandboxes.
+export const sandboxCleanupFn = inngest.createFunction(
+  {
+    id: "sandbox-cleanup",
+    triggers: [
+      {
+        event: "inngest/function.cancelled",
+        if: "event.data.function_id == 'token-streaming-agent-weather-agent'",
+      },
+    ],
+  },
+  async ({ event }) => {
+    const eventId = (event.data as { event?: { id?: string } })?.event?.id;
+    if (eventId) await destroyRunSandboxes(eventId);
   },
 );

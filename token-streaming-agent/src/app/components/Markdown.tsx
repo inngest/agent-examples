@@ -29,7 +29,7 @@ const MAX_RENDER_CHARS = 20_000;
 // streaming, and a settled assistant turn's text never changes while another
 // turn streams. Without memo, every settled bubble re-parses its full Markdown
 // (parseSpans creates a React element per span) ~25×/sec — on a long,
-// formatting-heavy reply (e.g. monty analysis output) that allocation storm
+// formatting-heavy reply (e.g. run_python analysis output) that allocation storm
 // OOMs the tab. `text` is the only prop, so a shallow compare skips re-parse.
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const capped =
@@ -286,7 +286,7 @@ function parseSpans(text: string, keyPrefix: string): ReactNode[] {
   // recursive call resets and mutates the SHARED `INLINE_RE.lastIndex`; when it
   // returns, the outer loop's lastIndex has been clobbered to 0, so the next
   // exec re-scans from the start and re-matches the same token forever, pushing
-  // unbounded elements until the tab OOMs. (This is the monty crash: its
+  // unbounded elements until the tab OOMs. (This is the run_python crash: its
   // formatting-heavy output is the first content to hit a bold/italic/link.)
   // matchAll iterates over an internal clone and never touches lastIndex, so
   // recursion is fully isolated.

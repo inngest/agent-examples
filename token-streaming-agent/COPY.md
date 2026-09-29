@@ -87,9 +87,9 @@ Use verbatim; each is verifiably true in this repo.
   serves — the agent loop, tools, and streaming don't change.
 
 - **"The model writes Python. The sandbox runs it. It's still just a step."**
-  A `run_python` tool executes model-written scripts in a secure in-process
-  interpreter (Monty) — no filesystem, network, or env access — and the
-  whole call is one memoized `tool-run_python-*` step like any other.
+  A `run_python` tool executes model-written scripts in a fresh Inngest
+  Sandbox (an isolated Linux VM, away from the worker and its secrets), and
+  create, exec, and destroy are each memoized `tool-run_python-*` steps.
 
 **Accuracy guardrails** (keep copy honest):
 
@@ -115,7 +115,7 @@ Use verbatim; each is verifiably true in this repo.
 | Outbound-only worker, no serve route | `src/worker/index.ts` — `connect({ apps: [...] })` |
 | Web app never executes a step | `src/app/api/chat/route.ts`, `src/app/api/realtime-token/route.ts` |
 | Any two models, one OpenRouter key | `src/worker/openrouter.ts`, `MODEL_A`/`MODEL_B` in `src/worker/chat-function.ts` |
-| Python tool runs in a secure sandbox, as a step | `src/worker/sandbox/` (Monty runner), `tool-run_python-*` in `src/worker/agent.ts` |
+| Python tool runs in an Inngest Sandbox, as steps | `src/worker/sandbox/inngest.ts`, `tool-run_python-*-create/-exec/-destroy` in `src/worker/agent.ts` |
 
 ---
 
@@ -131,11 +131,11 @@ Use verbatim; each is verifiably true in this repo.
    summary table."*
 2. **Watch the stream:** tokens appear live; the agent fetches all three
    cities, then writes Python scripts — tool-call lines interrupt the stream,
-   each script runs in the Monty sandbox (marked **Sandboxed** in the UI), and
+   each script runs in its own Inngest Sandbox (marked **Sandboxed** in the UI), and
    its source + printed output render as code blocks in the trace.
 3. **Open the Inngest dashboard** (AI → Runs) and point at the run view:
    `llm-turn-0`, `tool-get_weather_multi-0-0`, `llm-turn-1`,
-   `tool-run_python-1-0`, `llm-turn-2`, `tool-run_python-2-0`, …,
+   `tool-run_python-1-0-create`/`-exec`/`-destroy`, `llm-turn-2`, …,
    `tool-convert_to_fahrenheit-*`, `tool-get_current_time-*` — each a discrete,
    individually-addressable step, none of them declared in advance.
 4. **The money shot:** kill the worker during the second Python pass. "Every

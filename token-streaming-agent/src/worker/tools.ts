@@ -1,5 +1,7 @@
 import type OpenAI from "openai";
-import { pythonRunner } from "./sandbox";
+import type { GetStepTools } from "inngest";
+import type { inngest } from "../inngest/client";
+import { runPythonInSandbox, sandboxPrefix } from "./sandbox/inngest";
 
 // OpenAI/OpenRouter function-tool definitions. Both experiment arms (MODEL_A /
 // MODEL_B, see chat-function.ts) call these through the Chat Completions
@@ -45,7 +47,7 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "run_python",
       description:
-        "Run a short Python script to analyze the weather data and return its printed output. The readings for the cities you pass are injected as a variable `weather` — a list of the same objects get_weather_multi returns: { city, unit, current, daily: [{ date, highC, lowC, humidity, windKph, precipMm, condition }] } (30 days of daily history each). Use this for analysis the other tools can't do directly: trends over the daily series, aggregates (averages, min/max), correlations, filtering. Read `weather` and print() your results — only stdout is returned. IMPORTANT — this runs in a restricted interpreter: only the standard-library modules json, datetime, and re can be imported; there are NO third-party packages (no numpy, pandas, statistics), no classes, and no match statements. Use plain loops, comprehensions, and builtins (sum, min, max, len, sorted, round).",
+        "Run a short Python script to analyze the weather data and return its printed output. The readings for the cities you pass are injected as a variable `weather` — a list of the same objects get_weather_multi returns: { city, unit, current, daily: [{ date, highC, lowC, humidity, windKph, precipMm, condition }] } (30 days of daily history each). Use this for analysis the other tools can't do directly: trends over the daily series, aggregates (averages, min/max), correlations, filtering. Read `weather` and print() your results — only stdout is returned. It runs as Python 3.14 in an isolated sandbox with the full standard library (json, datetime, statistics, math, re, …), but NO third-party packages (no numpy or pandas) and nothing can be installed — use the standard library and builtins.",
       parameters: {
         type: "object",
         properties: {
@@ -252,15 +254,23 @@ function truncate(s: string, max = 4000): string {
   return s.length > max ? `${s.slice(0, max)}\n…[truncated ${s.length - max} chars]` : s;
 }
 
-// Run the model's Python against the injected weather data via the pluggable
-// sandbox backend (placeholder in part 1; Monty in part 2). Coerces args
+// Run the model's Python against the injected weather data in an Inngest
+// Sandbox. Unlike the other tools this takes `step`: the sandbox's create,
+// exec, and destroy are durable steps of their own (named from `idBase`), so it
+// can't run inside a single step.run like executeTool does. Coerces args
 // defensively — a malformed tool-call emit yields `{}` upstream (agent.ts), so
 // this degrades to empty cities/code rather than throwing. Returns a compact
 // JSON envelope so the model can read stdout/errors back on the next turn.
-async function runPythonTool(input: any): Promise<string> {
+export async function runPythonTool(
+  step: GetStepTools<typeof inngest>,
+  idBase: string,
+  eventId: string,
+  input: any,
+): Promise<string> {
   const cities = Array.isArray(input?.cities) ? input.cities.map(String) : [];
   const code = String(input?.code ?? "");
-  const res = await pythonRunner.run(code, weatherContext(cities));
+  const name = `${sandboxPrefix(eventId)}-${idBase.replace(/^tool-run_python-/, "")}`;
+  const res = await runPythonInSandbox(step, idBase, name, code, weatherContext(cities));
   return JSON.stringify({
     ok: res.ok,
     stdout: truncate(res.stdout),
@@ -309,12 +319,12 @@ function getCurrentTime(timezone?: string): string {
 
 // Registry of tool implementations, keyed by name — dispatch is a lookup, not
 // a hardcoded switch, so agent.ts stays generic over whatever's declared above.
-// Handlers may be sync (return a string) or async (return a Promise<string> —
-// run_python awaits the sandbox); executeTool awaits either.
+// Handlers may be sync (return a string) or async; executeTool awaits either.
+// run_python isn't here: it needs `step` for its sandbox steps, so agent.ts
+// calls runPythonTool directly.
 const toolHandlers: Record<string, (input: any) => string | Promise<string>> = {
   get_weather: (input) => getWeather(String(input.city ?? "")),
   get_weather_multi: (input) => getWeatherMulti(Array.isArray(input?.cities) ? input.cities : []),
-  run_python: (input) => runPythonTool(input),
   convert_to_celsius: (input) => convertToCelsius(input?.fahrenheit),
   convert_to_fahrenheit: (input) => convertToFahrenheit(input?.celsius),
   get_current_time: (input) => getCurrentTime(input?.timezone ? String(input.timezone) : undefined),

@@ -14,8 +14,7 @@
     "inngest-cli"
   ],
   "dependencies": {
-    "@pydantic/monty": "^0.0.19",
-    "inngest": "^4.13.0",
+    "inngest": "^4.20.0",
     "next": "^16.0.0",
     "openai": "^7.0.0",
     "react": "^19.0.0",

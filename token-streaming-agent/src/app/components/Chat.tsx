@@ -177,13 +177,13 @@ function Spark({ size = 16 }: { size?: number }) {
   );
 }
 
-// Marks a run_python line: the model-written script ran in the isolated Monty
-// interpreter (src/worker/sandbox), not on the worker's host.
+// Marks a run_python line: the model-written script ran in its own Inngest
+// Sandbox VM (src/worker/sandbox), not on the worker's host.
 function SandboxChip() {
   return (
     <span
       className="sandbox-chip"
-      title="Runs in an isolated Python interpreter: no filesystem, network, or environment access"
+      title="Runs in its own isolated Inngest Sandbox VM, separate from the worker and its secrets"
     >
       <Icon name="shield" size={11} />
       Sandboxed
@@ -370,7 +370,7 @@ function extractPython(input: unknown): { code: string; cities: string[] } {
 // Memoized: this renders once per tool result and must NOT re-render on every
 // ~40ms token batch during a later answer stream (the live fold re-runs per
 // batch and would otherwise re-parse the JSON + recreate the <pre> DOM ~25x/s,
-// which is the monty-specific OOM/tab-crash path). Props are referentially
+// which is the run_python-specific OOM/tab-crash path). Props are referentially
 // stable across fold passes, so default shallow compare skips re-render.
 const PythonResultView = memo(function PythonResultView({ output }: { output: string }) {
   let parsed: { stdout?: string; stderr?: string; result?: string; error?: string } | null = null;
@@ -1273,7 +1273,7 @@ export default function Chat() {
             </div>
             <p className="sandbox-note">
               <Icon name="shield" size={12} />
-              Model-written Python runs in an isolated sandbox: no files, network, or secrets.
+              Model-written Python runs in its own Inngest Sandbox, isolated from the app and its secrets.
             </p>
           </div>
         )}

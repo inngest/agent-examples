@@ -1,5 +1,5 @@
 import { Inngest } from "inngest";
-import { scoreMiddleware } from "inngest/experimental";
+import { sandboxMiddleware, scoreMiddleware } from "inngest/experimental";
 
 export const inngest = new Inngest({
   id: "token-streaming-agent",
@@ -11,5 +11,7 @@ export const inngest = new Inngest({
   appVersion: process.env.INNGEST_APP_VERSION,
   // Enables step.score() and inngest.score.experiment(...) so the
   // haiku-vs-opus experiment in chat-function.ts can attach scores to runs.
-  middleware: [scoreMiddleware()],
+  // sandboxMiddleware enables step.sandbox, which run_python uses to run
+  // model-written code in an isolated Inngest Sandbox (worker/sandbox).
+  middleware: [scoreMiddleware(), sandboxMiddleware()],
 });

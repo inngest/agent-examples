@@ -1,0 +1,28 @@
+# Build context for both Dockerfile.web and Dockerfile.worker (Render sets the
+# context to this directory via rootDir). Keep secrets and local build output
+# out of the image — Dockerfile.web does a `COPY . .`, so anything left here
+# lands in a layer.
+
+# Installed by the image itself (bun install --frozen-lockfile).
+node_modules
+
+# Local Next build output; the image runs its own `bun run build`.
+.next
+out
+*.tsbuildinfo
+next-env.d.ts
+
+# Real secrets. Never in an image — Render injects env vars at runtime.
+.env
+.env*.local
+
+# Local Inngest Dev Server state (see root .gitignore).
+inngest
+
+# Docs and build plumbing: nothing at runtime reads these.
+*.md
+Dockerfile.*
+.dockerignore
+.gitignore
+.git
+.DS_Store

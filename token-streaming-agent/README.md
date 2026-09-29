@@ -113,11 +113,11 @@ Render's git sha automatically (see Dockerfile.worker).
 This exercises the full agent loop across many turns: the model fetches all
 three cities' history, then writes Python scripts (`run_python`) to aggregate
 the 30-day daily series — averages, rainfall totals, a two-week warming
-comparison — then converts units and looks up local times. Each script runs in the [Monty](https://github.com/pydantic/monty) sandbox and
+comparison — then converts units and looks up local times. Each script runs in its own Inngest Sandbox and
 prints its results back. Watch the tool-called/tool-result lines appear between
 streamed turns, with the **Python source and its printed output rendered as code
 blocks** in the trace; the run view in the Dev Server shows the `llm-turn-*`
-steps each followed by a `tool-*` step (including `tool-run_python-*`).
+steps each followed by a `tool-*` step (`run_python` shows as `tool-run_python-*-create`, `-exec`, and `-destroy`).
 Send a follow-up afterward (e.g. "now compare that with London") to confirm the
 full conversation history round-trips correctly.
 
@@ -222,15 +222,16 @@ tools, the agent has a `run_python` tool: the model writes a short Python script
 to analyze the ~30-day daily history (trends, aggregates, correlations), and the
 worker injects the requested cities' readings into the script as a `weather`
 variable — the same deterministic data `get_weather_multi` returns, so nothing is
-retyped. Generated code must run **only in a sandbox**, so execution goes through
-a pluggable `PythonRunner` interface (`src/worker/sandbox/`): the tool, agent,
-and UI depend only on that interface, so the backend is a one-line swap. Today it
-ships a no-op placeholder (returns "not configured yet"); it's backed by
-[Monty](https://github.com/pydantic/monty) (`@pydantic/monty`, a Rust-based
-secure Python interpreter) next, and can be swapped for Inngest Sandboxes after
-that. Monty runs a restricted Python subset — stdlib `json`/`datetime`/`re`
-only, no third-party packages, no classes — which the system prompt tells the
-model about so it writes compatible scripts. The trace renders the script and its
+retyped. Generated code must run **only in a sandbox**, so each call gets a
+fresh [Inngest Sandbox](https://www.inngest.com/docs) (`src/worker/sandbox/`),
+an isolated Linux VM separate from the worker. Its create, exec, and destroy
+run as durable steps (`tool-run_python-*-create`/`-exec`/`-destroy`), so each
+one shows up in the run trace. If a run fails or is cancelled partway, its
+sandboxes are cleaned up by `onFailure` and the `sandbox-cleanup` function.
+Scripts get Python 3.14 with the full standard library but no third-party
+packages, which the system prompt tells the model. Sandboxes are an
+access-gated beta: the Inngest environment behind `INNGEST_SIGNING_KEY` needs
+them enabled, or create returns `403 access_denied`. The trace renders the script and its
 output as code blocks.
 
 ## Using a different provider
