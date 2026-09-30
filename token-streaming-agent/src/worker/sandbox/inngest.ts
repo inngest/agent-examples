@@ -48,6 +48,9 @@ export async function runPythonInSandbox(
   const res = await sandbox.commands.run(`${idBase}-exec`, ["python3", "-c", BOOTSTRAP, payload], {
     cwd: "/tmp",
     timeout: "30s",
+    environment: {
+      LOG_LEVEL: "info",
+    }
   });
 
   await sandbox.destroy(`${idBase}-destroy`);
