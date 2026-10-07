@@ -260,6 +260,7 @@ function startSummary() {
     `${g.maxStalls ?? GOAL_DEFAULTS.maxStalls} stalls`,
     `${g.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn} tok/turn`,
     g.reasoningMaxTokens ? `reasoning ${g.reasoningMaxTokens} tok` : g.reasoningEffort ? `reasoning ${g.reasoningEffort}` : "reasoning: worker env",
+    g.focus === false ? "no focus" : "",
     resetsWorkspace ? "resets workspace" : "",
   ]
     .filter(Boolean)

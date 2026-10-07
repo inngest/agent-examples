@@ -74,6 +74,9 @@ starting over. On top of that, each misbehaviour we hit has a specific answer:
 | retries an approach that already failed | sees a journal of the last 5 attempts in its brief: each one's own summary, outcome and per-function change in failing cases |
 | breaks cases that used to pass | is reverted, and the next brief lists the cases that attempt broke ("keep these passing") |
 | stares at the same examples every attempt | gets a different window of 10 failing examples each attempt, rotating through a pool of 60 |
+| spends its first turns on `list_files` and `read_file` | gets the current code in its brief (up to 20,000 chars), so turn 1 can edit |
+| gets `old_string` almost right | is told which lines are closest (or that only whitespace differs) and gets them quoted exactly, to copy; an ambiguous match lists its line numbers |
+| rewrites everything and breaks as much as it fixes | gets one function to work on per attempt (the most-failing one), moving down the list with every attempt that doesn't improve; off with `--no-focus`, and not before the first kept attempt |
 | crashes, or the attempt is cancelled | counts as a stall; the goal never fails because of one attempt |
 
 The check itself is out of reach: attempts see only its report (failures by
@@ -273,7 +276,8 @@ with the files carried in step state instead of a git repo.
 | `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | | Cloud only |
 | `WORKSPACE_BACKEND` | `local` | `local` (git repo in `workspace/`, check in a child process) or `sandbox` (Cloud only) |
 
-Per goal, `goal/started` also accepts `maxTurnsPerAttempt` (default 8), and
+Per goal, `goal/started` also accepts `maxTurnsPerAttempt` (default 8),
+`focus` (default `true`; `--no-focus` on `goal:send` / `goal:watch`), and
 `reasoningEffort` / `reasoningMaxTokens` for thinking models (opt-in; sending
 `reasoning` to a non-thinking model makes OpenRouter find no provider).
 

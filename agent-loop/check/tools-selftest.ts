@@ -48,6 +48,16 @@ const mf = memoryStore({ "semver.ts": 'import { two } from "./util.ts";\nexport 
 ok((await call(mf, "typecheck", {})).result === "typecheck passed: no errors", "memory: .ts import specifier typechecks");
 const js = await call(mf, "edit_file", { path: "semver.ts", old_string: '"./util.ts"', new_string: '"./util.js"' });
 ok(js.result.includes("typecheck errors") && js.result.includes('must name the .ts file: "./util.ts"'), "memory: .js import specifier rejected");
+// edit_file hints: point at the closest text, quoted exactly, so the next try can copy it
+const hm = memoryStore({ "semver.ts": "export function f(v: string): string {\n  if (v === \"\") {\n    return \"x\";\n  }\n  return v;\n}\n" });
+const wsHint = await call(hm, "edit_file", { path: "semver.ts", old_string: 'if (v === "") {\nreturn "x";', new_string: "y" });
+ok(wsHint.result.includes("lines 2-3 except for whitespace") && wsHint.result.includes('    return "x";'), "hint: whitespace-only mismatch names the lines and quotes them");
+const near = await call(hm, "edit_file", { path: "semver.ts", old_string: '  if (v === "") {\n    return "z";\n  }', new_string: "y" });
+ok(near.result.includes("closest text is lines 2-4") && near.result.includes('return "x";'), "hint: near miss quotes the closest lines");
+ok((await call(hm, "edit_file", { path: "semver.ts", old_string: "completely unrelated text here", new_string: "y" })).result.includes("Nothing in the file is close"), "hint: no close text says so");
+ok((await call(hm, "edit_file", { path: "semver.ts", old_string: "", new_string: "y" })).result.includes("use write_file"), "hint: empty old_string points at write_file");
+ok((await call(hm, "edit_file", { path: "semver.ts", old_string: "return", new_string: "yield" })).result.includes("matches 2 times (at lines 3, 5)"), "hint: ambiguous match lists its lines");
+
 // local store never returns `changed`
 ok((await call(localFsStore, "finish_attempt", { summary: "s" })).changed === undefined, "fs: no changed field");
 

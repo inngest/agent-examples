@@ -24,6 +24,7 @@ export const goalStarted = eventType("goal/started", {
     reasoningEffort: z.enum(["low", "medium", "high"]).optional(), // opt-in, thinking models only
     maxTokensPerTurn: z.number().int().positive().optional(), // default 4000
     reasoningMaxTokens: z.number().int().positive().optional(), // opt-in, thinking models only; takes precedence over reasoningEffort
+    focus: z.boolean().optional(), // default true: each attempt works on one failing function
   }),
 });
 

@@ -12,10 +12,12 @@ export type GoalOptions = {
   maxTokensPerTurn?: number;
   reasoningEffort?: "low" | "medium" | "high";
   reasoningMaxTokens?: number;
+  focus?: boolean;
 };
 
 // The goal flags both scripts accept: --model, --max-attempts, --max-stalls,
-// --max-tokens, --reasoning-effort low|medium|high, --reasoning-max-tokens.
+// --max-tokens, --reasoning-effort low|medium|high, --reasoning-max-tokens,
+// --no-focus (attempts see the whole report instead of one function).
 export function parseGoalArgs(argv: string[]): Partial<GoalOptions> {
   const args = argv.filter((a) => a !== "--");
   const get = (flag: string) => {
@@ -35,6 +37,7 @@ export function parseGoalArgs(argv: string[]): Partial<GoalOptions> {
     maxTokensPerTurn: num("--max-tokens"),
     reasoningEffort: (["low", "medium", "high"] as const).find((e) => e === get("--reasoning-effort")),
     reasoningMaxTokens: num("--reasoning-max-tokens"),
+    focus: args.includes("--no-focus") ? false : undefined,
   };
 }
 
@@ -49,6 +52,7 @@ export async function startGoal(o: GoalOptions): Promise<string[]> {
         maxTokensPerTurn: o.maxTokensPerTurn,
         reasoningEffort: o.reasoningEffort,
         reasoningMaxTokens: o.reasoningMaxTokens,
+        focus: o.focus,
       },
       // Inngest Sessions: groups the goal-loop run under AI > Sessions in the
       // dashboard. Sessions propagate through step.invoke / step.sendEvent by

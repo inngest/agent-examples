@@ -5,7 +5,7 @@ import { TOOLS, executeTool } from "./tools.js";
 import { buildBrief, SYSTEM_PROMPT } from "../lib/prompt.js";
 import { commitAll, headMessage, headSha, isDirty, resetHard } from "../lib/git.js";
 import { backend, filesRef } from "../lib/backend.js";
-import { localFsStore, memoryStore } from "../lib/file-store.js";
+import { localFsStore, memoryStore, type FileStore } from "../lib/file-store.js";
 import { liveAttempt, liveAttemptInStep } from "../lib/live.js";
 import { excerpt } from "./channel.js";
 import { modelCallMode, modelCaller, type ChatResponse } from "../lib/model-call.js";
@@ -31,6 +31,8 @@ const AttemptInput = z.object({
     )
     .optional(),
   regressions: z.object({ i: z.number(), count: z.number(), examples: z.array(z.string()) }).optional(),
+  // The function this attempt should work on (see pickFocus); unset = whole report.
+  focus: z.object({ fn: z.string(), failed: z.number(), total: z.number() }).optional(),
   humanNote: z.string().optional(),
   best: z.object({ failed: z.number(), total: z.number() }),
   model: z.string(),
@@ -55,6 +57,16 @@ const MAX_EMPTY_FINISH_REFUSALS = 2;
 const EMPTY_FINISH_REFUSAL =
   "error: you haven't changed any file in this attempt, so there is nothing to finish. Make the change now with edit_file or write_file, then call finish_attempt.";
 
+// Every .ts file under src/, keyed by its path relative to src/.
+async function snapshot(store: FileStore): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const p of (await store.list()).filter((f) => f.endsWith(".ts")).sort()) {
+    const g = await store.resolve(p, false);
+    if ("key" in g) out[p] = await store.read(g.key);
+  }
+  return out;
+}
+
 const oneLine = (s: string, max: number) => s.replace(/\s+/g, " ").trim().slice(0, max);
 
 const isJsonObject = (s: string) => {
@@ -78,6 +90,7 @@ export const agentAttempt = inngest.createFunction(
       examples,
       journal,
       regressions,
+      focus,
       humanNote,
       best,
       model,
@@ -105,25 +118,31 @@ export const agentAttempt = inngest.createFunction(
     // inside a step, so replay rebuilds it exactly.
     const sandbox = backend() === "sandbox";
     const files = new Map<string, string>();
+    // `code` is the starting source, inlined in the brief (see buildBrief).
+    // Local: read in the step after the reset, so replay sees the same text.
+    // (A run that prepared before this field existed just gets no code.)
+    let code: Record<string, string> | undefined;
     if (sandbox) {
       const seed = await step.run("prepare", async () => {
         await liveAttemptInStep(goalId, { type: "attempt.started", i });
         return { seed: bestFiles ?? {} };
       });
       for (const [p, c] of Object.entries(seed.seed)) files.set(p, c);
+      code = Object.fromEntries(files);
     } else {
-      await step.run("prepare", async () => {
+      const prepared: { reset: string; code?: Record<string, string> } = await step.run("prepare", async () => {
         await liveAttemptInStep(goalId, { type: "attempt.started", i });
         await resetHard(bestCommit);
-        return { reset: bestCommit };
+        return { reset: bestCommit, code: await snapshot(localFsStore) };
       });
+      code = prepared.code;
     }
 
     // The whole history is rebuilt from step return values only, so a replay
     // reconstructs exactly the same messages.
     const messages: Msg[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildBrief({ i, best, humanNote, report, examples, journal, regressions }) },
+      { role: "user", content: buildBrief({ i, best, humanNote, report, examples, journal, regressions, focus, code }) },
     ];
     const tokens = { input: 0, output: 0 };
     let summary = "";
