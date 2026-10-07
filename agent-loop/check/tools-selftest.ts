@@ -58,6 +58,10 @@ ok((await call(hm, "edit_file", { path: "semver.ts", old_string: "completely unr
 ok((await call(hm, "edit_file", { path: "semver.ts", old_string: "", new_string: "y" })).result.includes("use write_file"), "hint: empty old_string points at write_file");
 ok((await call(hm, "edit_file", { path: "semver.ts", old_string: "return", new_string: "yield" })).result.includes("matches 2 times (at lines 3, 5)"), "hint: ambiguous match lists its lines");
 
+// a leading src/ (how the brief labels files) is accepted
+ok((await call(hm, "read_file", { path: "src/semver.ts" })).result.includes("export function f"), "path: src/ prefix accepted");
+ok((await call(hm, "read_file", { path: "./semver.ts" })).result.includes("export function f"), "path: ./ prefix accepted");
+
 // local store never returns `changed`
 ok((await call(localFsStore, "finish_attempt", { summary: "s" })).changed === undefined, "fs: no changed field");
 

@@ -31,6 +31,8 @@ export type LoopMessage =
   // reviewer can see what to say.
   | { type: "review.waiting"; i: number; stalls: number; bestScore: number; report: string }
   | { type: "review.resumed"; i: number; action: "continue" | "stop" | "timeout"; note?: string }
+  // The goal can't run (e.g. the model can't call tools); the run fails.
+  | { type: "goal.failed"; reason: string }
   | {
       type: "goal.finished";
       attempts: number;
@@ -55,6 +57,8 @@ export type AttemptMessage =
       text: string;
       outputTokens: number;
       reasoningTokens?: number; // of outputTokens
+      maxTokens?: number; // this turn's output budget (the reasoning ladder may raise it)
+      reasoningOff?: boolean; // the ladder turned reasoning off
       inputTokens?: number;
       provider?: string;
     }

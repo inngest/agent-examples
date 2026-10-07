@@ -41,6 +41,13 @@ const AttemptInput = z.object({
   reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
   maxTokensPerTurn: z.number(),
   reasoningMaxTokens: z.number().optional(),
+  // From the model profile (goal-loop): whether `reasoning` may be sent at all,
+  // and the most the turn budget may grow to.
+  supportsReasoning: z.boolean().optional(),
+  maxTokensCap: z.number().optional(),
+  // Where earlier attempts' reasoning ladder ended up (see below), so this one
+  // starts there instead of finding out again.
+  start: z.object({ maxTokens: z.number().optional(), reasoningOff: z.boolean().optional() }).optional(),
 });
 
 type ToolCall = { id: string; type: string; function: { name: string; arguments: string } };
@@ -68,6 +75,23 @@ async function snapshot(store: FileStore): Promise<Record<string, string>> {
   return out;
 }
 
+// Cut off at the token limit with at least half the output spent reasoning.
+const cutOffThinking = (res: ChatResponse): boolean => {
+  const out = res.usage?.completion_tokens ?? 0;
+  const reasoning = res.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+  return res.choices?.[0]?.finish_reason === "length" && out > 0 && reasoning >= out / 2;
+};
+
+// Most the ladder grows a turn's budget to when the model profile states no limit.
+const MAX_TOKENS_CAP = 32_000;
+// OpenRouter's way of turning reasoning off; honoured where budgets and low
+// efforts weren't (mistral-large-4-0: 0 reasoning tokens, a tool call in 24s).
+const REASONING_OFF = { enabled: false } as const;
+
+// The call timeout grows with the budget: a slow provider (~100 tok/s) needs
+// ~3 minutes for 16k tokens. Never below MODEL_TIMEOUT_MS (default 180s).
+const turnTimeoutMs = (budget: number) => Math.max(Number(process.env.MODEL_TIMEOUT_MS) || 180_000, budget * 15);
+
 // What to say after a turn without a tool call. A cut-off turn that was
 // mostly reasoning (mistral-large-4-0 at 4,000 tokens: 3,084-3,909 of them
 // reasoning, every turn) needs "stop thinking and act", not "make a smaller
@@ -76,7 +100,7 @@ const idleNudge = (res: ChatResponse): string => {
   if (res.choices?.[0]?.finish_reason !== "length") return "Use the tools, then call finish_attempt.";
   const out = res.usage?.completion_tokens ?? 0;
   const reasoning = res.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
-  if (out > 0 && reasoning >= out / 2)
+  if (cutOffThinking(res))
     return `You ran out of room for this turn while thinking (${reasoning} of ${out} output tokens were reasoning), so no tool call was made, and that reasoning is not kept. Keep your thinking short and make the tool call right away. If the whole change doesn't fit, make the first part of it with edit_file now.`;
   return "Your output was cut off before you made a tool call. Make a smaller edit with edit_file instead.";
 };
@@ -113,6 +137,9 @@ export const agentAttempt = inngest.createFunction(
       reasoningEffort,
       maxTokensPerTurn,
       reasoningMaxTokens,
+      supportsReasoning = true,
+      maxTokensCap = MAX_TOKENS_CAP,
+      start,
     } = event.data;
 
     // OpenRouter treats reasoning.effort and reasoning.max_tokens as mutually
@@ -120,9 +147,10 @@ export const agentAttempt = inngest.createFunction(
     // keep it under max_tokens (clamp to half) so reasoning can't eat the whole
     // output budget and leave no room for the tool call.
     // Both are opt-in; with neither set, no `reasoning` field is sent at all.
-    const reasoning =
+    // Not every model honours either (see the reasoning ladder below).
+    const configuredReasoning = (budget: number) =>
       reasoningMaxTokens !== undefined
-        ? { max_tokens: Math.min(reasoningMaxTokens, Math.floor(maxTokensPerTurn / 2)) }
+        ? { max_tokens: Math.min(reasoningMaxTokens, Math.floor(budget / 2)) }
         : reasoningEffort !== undefined
           ? { effort: reasoningEffort }
           : undefined;
@@ -180,6 +208,19 @@ export const agentAttempt = inngest.createFunction(
     // Both derived from memoized tool results only, so replay is deterministic.
     let edited = false;
     let emptyFinishRefusals = 0;
+    // Reasoning ladder. A turn cut off while mostly reasoning gets, in order:
+    // the nudge (idleNudge); a doubled turn budget (up to maxTokensCap); then
+    // reasoning off. Caps can't be trusted: mistral-large-4-0 ignored a
+    // 1,500-token reasoning budget and effort "low" and thought past 18k
+    // tokens, but with reasoning off it wrote the whole port in one turn.
+    // Off works whatever kind of control a model has, so an attempt always
+    // gets to act. Derived from memoized responses only, so replay matches.
+    let budget = Math.min(maxTokensCap, Math.max(maxTokensPerTurn, start?.maxTokens ?? 0));
+    let reasoningOff = supportsReasoning && start?.reasoningOff === true;
+    let thinkingCutoffs = 0;
+    let raised = false;
+    let escalated = false;
+    let escalationWorked = false;
     for (let t = 1; turns < maxTurns && idleTurns < MAX_IDLE_TURNS && !summary; t++) {
       // Derived only from loop variables, so replay rebuilds identical messages.
       if (turns === maxTurns - 1 && !warnedLastTurn) {
@@ -189,6 +230,7 @@ export const agentAttempt = inngest.createFunction(
           content: "This is your last turn. Call finish_attempt now with a one-line summary of what you changed.",
         });
       }
+      const turnReasoning = !supportsReasoning ? undefined : reasoningOff ? REASONING_OFF : configuredReasoning(budget);
       const body = {
           model,
           messages,
@@ -204,8 +246,8 @@ export const agentAttempt = inngest.createFunction(
           // it, take the fastest: default routing once sent nemotron to an
           // 8 tok/s provider (a 9-minute turn) while another did 240 tok/s.
           ...(baseUrl.includes("openrouter.ai") ? { provider: { require_parameters: true, ...providerRouting } } : {}),
-          ...(reasoning ? { reasoning } : {}),
-          max_tokens: maxTokensPerTurn,
+          ...(turnReasoning ? { reasoning: turnReasoning } : {}),
+          max_tokens: budget,
         };
       // Same step id either way, and both return the OpenAI response shape, so
       // switching MODEL_CALL doesn't break replay of a run in flight.
@@ -214,7 +256,7 @@ export const agentAttempt = inngest.createFunction(
         modelCallMode() === "worker"
           ? ((await step.ai.wrap(
               `turn-${t}`,
-              modelCaller({ baseURL: baseUrl, apiKey, label, logger }),
+              modelCaller({ baseURL: baseUrl, apiKey, label, logger, timeoutMs: turnTimeoutMs(budget) }),
               body,
             )) as ChatResponse)
           : ((await step.ai.infer(`turn-${t}`, {
@@ -254,16 +296,31 @@ export const agentAttempt = inngest.createFunction(
         text: excerpt(msg?.content),
         outputTokens: res.usage?.completion_tokens ?? 0,
         reasoningTokens: res.usage?.completion_tokens_details?.reasoning_tokens,
+        maxTokens: budget,
+        ...(reasoningOff ? { reasoningOff: true } : {}),
         inputTokens: res.usage?.prompt_tokens ?? 0,
         provider: (res as { provider?: string }).provider,
       });
 
       if (calls.length === 0) {
         idleTurns++;
+        if (cutOffThinking(res)) {
+          thinkingCutoffs++;
+          // The first one only gets the nudge; after that, one rung per cut-off.
+          if (thinkingCutoffs >= 2 && !raised && budget < maxTokensCap) {
+            raised = escalated = true;
+            budget = Math.min(maxTokensCap, budget * 2);
+            logger.warn(`[${label}] cut off while reasoning again: turn budget → ${budget}`);
+          } else if (thinkingCutoffs >= 2 && supportsReasoning && !reasoningOff) {
+            reasoningOff = escalated = true;
+            logger.warn(`[${label}] cut off while reasoning again: reasoning off for the rest of the attempt`);
+          }
+        }
         messages.push({ role: "user", content: idleNudge(res) });
         continue;
       }
       turns++;
+      if (escalated) escalationWorked = true;
 
       for (let n = 0; n < calls.length; n++) {
         const call = calls[n]!;
@@ -322,6 +379,20 @@ export const agentAttempt = inngest.createFunction(
       return { commit: bestCommit, changed: false };
     });
 
-    return { commit: committed.commit, changed: committed.changed, files: "files" in committed ? committed.files : undefined, summary, turns, idleTurns, tokens, finished, costUsd };
+    // What the ladder settled on, if it had to climb and the model then acted:
+    // goal-loop starts the next attempts there.
+    const learned = escalationWorked ? { maxTokens: budget, reasoningOff } : undefined;
+    return {
+      commit: committed.commit,
+      changed: committed.changed,
+      files: "files" in committed ? committed.files : undefined,
+      summary,
+      turns,
+      idleTurns,
+      tokens,
+      finished,
+      costUsd,
+      ...(learned ? { learned } : {}),
+    };
   },
 );

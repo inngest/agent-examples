@@ -181,6 +181,11 @@ export function closestMatchHint(file: string, oldString: string): string {
   return ` The closest text is lines ${best.k + 1}-${best.k + best.len}. If that's what you meant, copy it into old_string exactly as it is here:\n${shown.join("\n")}${more}`;
 }
 
+// Paths are relative to src/, but models often include it ("src/semver.ts",
+// which is also how the brief labels the code). Accept it rather than fail
+// the call. Only the prefix is dropped, so "src/../x.ts" is still rejected.
+const srcRelative = (p: unknown) => (typeof p === "string" ? p.replace(/^\.\//, "").replace(/^src\//, "") : p);
+
 /**
  * Result of one tool call. `finished` is set when the model called finish_attempt.
  * `changed` (in-memory store only) carries the files this call wrote, so the
@@ -207,12 +212,12 @@ async function runTool(store: FileStore, name: string, rawArgs: string): Promise
       case "list_files":
         return { result: ((await store.list()).sort().join("\n") || "(no files)") };
       case "read_file": {
-        const g = await store.resolve(args.path, false);
+        const g = await store.resolve(srcRelative(args.path), false);
         if ("error" in g) return { result: g.error };
         return { result: truncate(await store.read(g.key), MAX_READ_CHARS) };
       }
       case "write_file": {
-        const g = await store.resolve(args.path, true);
+        const g = await store.resolve(srcRelative(args.path), true);
         if ("error" in g) return { result: g.error };
         if (!g.key.endsWith(".ts")) return { result: "error: only .ts files can be written" };
         if (typeof args.content !== "string") return { result: "error: content must be a string" };
@@ -225,7 +230,7 @@ async function runTool(store: FileStore, name: string, rawArgs: string): Promise
         return { result: `wrote ${bytes} bytes to ${String(args.path)}${await autoTypecheck(store)}` };
       }
       case "edit_file": {
-        const g = await store.resolve(args.path, false);
+        const g = await store.resolve(srcRelative(args.path), false);
         if ("error" in g) return { result: g.error };
         if (!g.key.endsWith(".ts")) return { result: "error: only .ts files can be edited" };
         if (typeof args.old_string !== "string" || args.old_string === "") {

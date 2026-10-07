@@ -321,3 +321,29 @@
 - First try of a bigger model, `mistralai/mistral-large-4-0` (routed to Mistral's own API), on the default `maxTokensPerTurn` 4,000: **every turn** ended `finish_reason: length` with no tool call, 3,084–3,909 of the 4,000 output tokens reasoning, 37–69s each (~100 tok/s). Writing the port takes ~3k tokens on top. Reasoning from a cut-off turn isn't kept, so each turn started thinking from scratch: no progress possible.
 - The nudge after a cut-off said "make a smaller edit with edit_file", which is the right advice for a runaway (nemotron's whitespace) and the wrong one here. Now, when at least half the cut-off output was reasoning, it says it ran out of room while thinking, that the reasoning isn't kept, to keep thinking short and make the tool call now (the first part with edit_file if the whole change doesn't fit). Turn messages carry `reasoningTokens`; the TUI shows "cut off while reasoning: 3.5k of 4.0k".
 - The budget itself is per goal: for this model `--max-tokens 12000 --reasoning-max-tokens 5000`. Next harness idea, not done: raise the attempt's own budget after repeated reasoning cut-offs.
+
+### mistral-large-4-0 ignores reasoning budgets; it's on or off (20:35 UTC)
+
+- canon-10 (`--max-tokens 20000 --reasoning-max-tokens 10000`, so `reasoning.max_tokens: 10000` was sent): turn 1 still reasoned 18.2k of 20k and was cut off.
+- Probe, the real attempt-1 request (stub brief, tools, `tool_choice: required`, `max_tokens` 8000), one call per variant, all on Mistral's own endpoint (it lists `reasoning` and `reasoning_effort` as supported):
+
+  | reasoning sent | result | out / reasoning | time | cost |
+  |---|---|---|---|---|
+  | (none) | cut off | 8000 / 6513 | 80s | $0.017 |
+  | `max_tokens: 1500` | cut off | 8000 / 7073 | 85s | $0.017 |
+  | `effort: "minimal"` | cut off | 8000 / 7045 | 85s | $0.017 |
+  | `effort: "low"` | cut off | 8000 / 6672 | 86s | $0.018 |
+  | `effort: "none"` | **write_file** | 2314 / 0 | 24s | $0.005 |
+  | `enabled: false` | **write_file** | 3248 / 0 | 32s | $0.008 |
+
+- So for this model a budget or a low effort does nothing; reasoning is on (and long) or off. With it off, attempt 1 writes the whole port in one turn at a third of the cost.
+- General lesson for "any model on OpenRouter": reasoning controls come in three kinds (a token budget that's honoured, an effort level that's a hint, on/off only) and the model listing doesn't say which. The harness can't trust a cap; it has to watch what comes back and adapt.
+
+### Hardening for any OpenRouter model: profile, reasoning ladder, learned start (~20:45 UTC)
+
+- Goal: try almost any model on OpenRouter without per-model flags.
+- **Model profile** (`src/lib/model-profile.ts`, step `model-profile` in goal-loop): reads `/api/v1/models/<slug>/endpoints`. An unknown slug (404) or a model with no tool + `tool_choice` endpoint fails the goal immediately (`NonRetriableError`, plus a `goal.failed` realtime message the TUI shows). `reasoning` is dropped when no tool endpoint takes it (qwen3-coder: none do; sending it there finds no provider). The turn budget is clamped to the largest `max_completion_tokens`. Checked against real listings: mistral-large-4-0 (tools, reasoning, 262k out), nemotron (235k), qwen3-coder (no reasoning), mythomax (no tools → fail), llama-3-8b-instruct (listed, zero endpoints → fail), `not/a-model` (404 → fail). An unreadable listing (API error, another base URL) falls back to permissive, as before.
+- **Reasoning ladder** (agent-attempt): turns cut off with ≥ half the output reasoning count up; the first gets the nudge, the next doubles the budget (to the cap, max 32k; the call timeout becomes max(MODEL_TIMEOUT_MS, 15 ms/token)), the next turns reasoning off (`reasoning: { enabled: false }`, honoured by Mistral and by nemotron on Phala, which still called the tool). Each step is derived from memoized responses, so replay matches.
+- **Learned start:** if the ladder climbed and the model then made a tool call, the attempt returns `learned { maxTokens, reasoningOff }`; goal-loop keeps the max and later attempts start there.
+- **Local probe** (ladder-probe-1, mistral-large-4-0, default 4,000 budget, from the stub): t1, t2 cut off reasoning (3,471 / 3,019 of 4,000) → budget 8,000; t3 wrote the whole port with 26 reasoning tokens (nudge + room); t5 cut off reasoning again (6,256 of 8,000) → reasoning off; t6 called `finish_attempt` in 1.8s. **Attempt 1: 2,481/17,752 failing (0.140), holdout 0.146, $0.053.** The best attempt 1 of any model so far (nemotron's ~0.41). Learned start across attempts not observed yet (one-attempt goal).
+- Found on the way: t3's `write_file` went to `src/semver.ts` and failed ("directory does not exist"); the brief itself labels the code `src/semver.ts:`. Tools now drop a leading `src/` or `./` (traversal like `src/../x.ts` is still rejected; 2 new selftests, 45 total).

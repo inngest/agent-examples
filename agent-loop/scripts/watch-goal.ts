@@ -46,6 +46,8 @@ const state = {
         since: number;
         lines: string[];
         seen: Set<string>;
+        // The first turn's budget, to show when the reasoning ladder raises it.
+        budget0?: number;
         // Context in use after the latest turn (its prompt + its output), who
         // served it, and that provider's window for the model.
         ctx?: number;
@@ -121,7 +123,13 @@ function onAttempt(m: AttemptMessage) {
             }`,
           );
     const tok = m.inputTokens ? `in ${kTok(m.inputTokens)} · out ${kTok(m.outputTokens)}` : `${m.outputTokens} tok`;
-    cur.lines.push(`${c.cyan(`t${m.t}`)}  ${what}  ${c.dim(tok)}${m.text ? c.dim(`  “${m.text}”`) : ""}`);
+    cur.budget0 ??= m.maxTokens;
+    // The reasoning ladder at work (see agent-attempt): a raised budget, reasoning off.
+    const ladder = [
+      m.maxTokens && cur.budget0 && m.maxTokens > cur.budget0 ? `budget ${kTok(m.maxTokens)}` : "",
+      m.reasoningOff ? "reasoning off" : "",
+    ].filter(Boolean);
+    cur.lines.push(`${c.cyan(`t${m.t}`)}  ${what}  ${c.dim(tok)}${ladder.length ? `  ${c.magenta(ladder.join(" · "))}` : ""}${m.text ? c.dim(`  “${m.text}”`) : ""}`);
   } else if (m.type === "tool") {
     const ok = !m.result.startsWith("error");
     cur.lines.push(`${c.dim(`t${m.t}.${m.n}`)} ${c.bold(m.name.padEnd(14))} ${ok ? m.result : c.red(m.result)}`);
@@ -152,6 +160,11 @@ function onLoop(m: LoopMessage) {
     case "review.resumed":
       if (m.note) state.lastNote = m.note;
       hideReview();
+      break;
+    case "goal.failed":
+      state.running = false;
+      state.current = undefined;
+      state.flash = c.red(`goal failed: ${m.reason}`);
       break;
     case "goal.finished":
       state.running = false;

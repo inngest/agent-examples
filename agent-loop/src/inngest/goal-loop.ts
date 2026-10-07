@@ -1,3 +1,4 @@
+import { NonRetriableError } from "inngest";
 import { inngest } from "./client.js";
 import { agentAttempt } from "./agent-attempt.js";
 import { DEFAULT_MODEL, GOAL_DEFAULTS, goalAttemptScored, goalFinished, goalReviewSubmitted, goalStarted } from "./events.js";
@@ -9,6 +10,7 @@ import { headSha, resetHard } from "../lib/git.js";
 import { recordScore } from "../lib/score.js";
 import { pickFocus, unimplemented, type JournalEntry, type Regressions } from "../lib/prompt.js";
 import { liveLoop } from "../lib/live.js";
+import { modelProfile } from "../lib/model-profile.js";
 import { excerpt, type AttemptOutcome } from "./channel.js";
 
 // Inngest caps a run at 1000 steps (platform limit; the SDK itself doesn't
@@ -36,6 +38,8 @@ type AttemptResult = {
   tokens: { input: number; output: number };
   finished: boolean;
   costUsd: number;
+  // Set when the attempt's reasoning ladder had to climb and the model then acted.
+  learned?: { maxTokens: number; reasoningOff: boolean };
 };
 
 const isAttemptResult = (x: unknown): x is AttemptResult => {
@@ -90,9 +94,27 @@ export const goalLoop = inngest.createFunction(
         maxTokens: Number.isInteger(maxTokens) && maxTokens > 0 ? maxTokens : undefined,
       };
     });
-    const reasoningEffort = event.data.reasoningEffort ?? reasoningEnv.effort;
-    const maxTokensPerTurn = event.data.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn;
-    const reasoningMaxTokens = event.data.reasoningMaxTokens ?? reasoningEnv.maxTokens;
+    // What the model can do on OpenRouter (see model-profile.ts), read once so
+    // any listed model works without per-model flags.
+    const profile = await step.run("model-profile", () =>
+      modelProfile(model, process.env.MODEL_BASE_URL ?? "https://openrouter.ai/api/v1/"),
+    );
+    if (!profile.supportsTools) {
+      await liveLoop(step, "live-unsupported", goalId, {
+        type: "goal.failed",
+        reason: profile.missing
+          ? `${model} isn't a model on OpenRouter (check the slug)`
+          : `${model}: no OpenRouter provider serves it with tools and tool_choice, which the loop needs`,
+      });
+      throw new NonRetriableError(profile.missing ? `${model} is not on OpenRouter` : `${model} has no OpenRouter endpoint that supports tools with tool_choice`);
+    }
+    // Sending `reasoning` to a model that takes none finds no provider at all.
+    const reasoningEffort = profile.supportsReasoning ? (event.data.reasoningEffort ?? reasoningEnv.effort) : undefined;
+    const reasoningMaxTokens = profile.supportsReasoning ? (event.data.reasoningMaxTokens ?? reasoningEnv.maxTokens) : undefined;
+    // Never ask for more than any provider will generate; the ladder grows the
+    // budget up to the same limit (32k when none is stated).
+    const maxTokensCap = Math.min(profile.maxCompletionTokens ?? 32_000, 32_000);
+    const maxTokensPerTurn = Math.min(event.data.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn, maxTokensCap);
 
     // One function per attempt (see pickFocus); `focus: false` turns it off.
     const focusOn = event.data.focus ?? true;
@@ -122,6 +144,9 @@ export const goalLoop = inngest.createFunction(
     // Attempt-to-attempt context, rebuilt on replay from memoized results only.
     let journal: JournalEntry[] = [];
     let regressions: Regressions | undefined;
+    // Where the reasoning ladder ended up in earlier attempts: later ones start
+    // there. Only grows (a bigger budget, reasoning off), from memoized results.
+    let learned: { maxTokens?: number; reasoningOff?: boolean } = {};
     // Per function, focused attempts that weren't kept (see pickFocus).
     const focusMisses: Record<string, number> = {};
     let attempts = 0;
@@ -138,7 +163,7 @@ export const goalLoop = inngest.createFunction(
       // failure is memoized like any step result, so replay stays deterministic.
       // A cancelled attempt doesn't reject the invoke: it resolves without an
       // attempt result, so anything that isn't one is treated the same way.
-      const failedAttempt = (summary: string) => ({
+      const failedAttempt = (summary: string): AttemptResult => ({
         commit: best.commit,
         changed: false,
         files: best.files,
@@ -170,11 +195,19 @@ export const goalLoop = inngest.createFunction(
             reasoningEffort,
             maxTokensPerTurn,
             reasoningMaxTokens,
+            supportsReasoning: profile.supportsReasoning,
+            maxTokensCap,
+            start: learned,
           },
         })
         .catch(() => failedAttempt("attempt failed"));
       const attempt = isAttemptResult(invoked) ? invoked : failedAttempt("attempt cancelled or returned no result");
 
+      if (attempt.learned)
+        learned = {
+          maxTokens: Math.max(learned.maxTokens ?? 0, attempt.learned.maxTokens),
+          reasoningOff: learned.reasoningOff || attempt.learned.reasoningOff,
+        };
       totalCostUsd += attempt.costUsd;
       totalTokens.input += attempt.tokens.input;
       totalTokens.output += attempt.tokens.output;

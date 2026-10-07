@@ -31,7 +31,7 @@ type Logger = { info: (...a: unknown[]) => void; warn: (...a: unknown[]) => void
 
 export const modelCallMode = (): "worker" | "inngest" => (process.env.MODEL_CALL === "inngest" ? "inngest" : "worker");
 
-const timeoutMs = () => {
+const defaultTimeoutMs = () => {
   const n = Number(process.env.MODEL_TIMEOUT_MS);
   return Number.isFinite(n) && n > 0 ? n : 180_000;
 };
@@ -53,7 +53,8 @@ async function trace(values: Record<string, unknown>) {
  * over (wrap records the function's arguments in the trace, so the key must
  * not be one); `label` identifies the turn in the logs.
  */
-export function modelCaller(opts: { baseURL: string; apiKey?: string; label: string; logger: Logger }) {
+export function modelCaller(opts: { baseURL: string; apiKey?: string; label: string; logger: Logger; timeoutMs?: number }) {
+  const timeoutMs = () => opts.timeoutMs ?? defaultTimeoutMs();
   // Retries belong to the step (memoized, visible in the trace), not the SDK.
   const client = new OpenAI({ baseURL: opts.baseURL, apiKey: opts.apiKey ?? "", timeout: timeoutMs(), maxRetries: 0 });
   return async (body: Record<string, unknown>): Promise<ChatResponse> => {

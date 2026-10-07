@@ -75,6 +75,7 @@ starting over. On top of that, each misbehaviour we hit has a specific answer:
 | breaks cases that used to pass | is reverted, and the next brief lists the cases that attempt broke ("keep these passing") |
 | stares at the same examples every attempt | gets a different window of 10 failing examples each attempt, rotating through a pool of 60 |
 | spends its first turns on `list_files` and `read_file` | gets the current code in its brief (up to 20,000 chars), so turn 1 can edit |
+| writes to `src/semver.ts` (paths are relative to `src/`) | has the leading `src/` (or `./`) dropped instead of an error |
 | gets `old_string` almost right | is told which lines are closest (or that only whitespace differs) and gets them quoted exactly, to copy; an ambiguous match lists its line numbers |
 | implements a stub file one function at a time | is told which functions still fail every case and to implement them all in this attempt |
 | rewrites everything and breaks as much as it fixes | once no function is a stub, gets one function to work on per attempt: the one with the fewest focused attempts that weren't kept, most-failing first among equals, so it moves on from a function it can't fix; off with `--no-focus` |
@@ -298,6 +299,30 @@ the time and the other's never did. The harness absorbs bad turns, but they
 cost attempts, so pin providers that behave with `MODEL_PROVIDERS`, and check
 `provider` in the turn outputs (or `scripts/trace-dump.py`) when a model
 suddenly gets worse.
+
+## Trying another model
+
+Any model on OpenRouter should run without per-model flags:
+
+- **Checked at goal start.** The `model-profile` step reads the model's
+  OpenRouter listing. A slug that doesn't exist, or a model no provider serves
+  with tools and `tool_choice`, fails the goal at once with a reason (the TUI
+  shows it) instead of 20 failed attempts. `reasoning` is only sent when some
+  tool-capable provider takes it, and the turn budget stays under the largest
+  `max_completion_tokens`.
+- **Reasoning that won't stop.** Reasoning controls come in three kinds: a
+  token budget that's honoured, an effort level that's a hint, and on/off
+  only. The listing doesn't say which (mistral-large-4-0 ignored a 1,500-token
+  budget and effort `low`, and thought past 18k tokens). So an attempt watches
+  for turns cut off while mostly reasoning and climbs a ladder: first a nudge
+  ("you ran out of room while thinking; act now"), then a doubled turn budget
+  (up to the model's limit, at most 32k, with the call timeout scaled to
+  match), then reasoning off, which every kind honours. The TUI marks those
+  turns (`budget 8.0k`, `reasoning off`).
+- **Learned once.** When an attempt had to climb and the model then acted,
+  later attempts of the goal start at that rung.
+
+`--max-tokens` and `--reasoning-max-tokens` still set the starting point.
 
 ## Scripts
 
