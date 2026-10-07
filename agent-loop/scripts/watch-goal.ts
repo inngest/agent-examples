@@ -111,7 +111,15 @@ function onAttempt(m: AttemptMessage) {
     const what =
       m.toolCalls > 0
         ? `${m.toolCalls} tool call${m.toolCalls > 1 ? "s" : ""}`
-        : c.yellow(`no tool call${m.finishReason === "length" ? " (cut off at the token limit)" : ""}`);
+        : c.yellow(
+            `no tool call${
+              m.finishReason !== "length"
+                ? ""
+                : (m.reasoningTokens ?? 0) >= m.outputTokens / 2
+                  ? ` (cut off while reasoning: ${kTok(m.reasoningTokens ?? 0)} of ${kTok(m.outputTokens)})`
+                  : " (cut off at the token limit)"
+            }`,
+          );
     const tok = m.inputTokens ? `in ${kTok(m.inputTokens)} · out ${kTok(m.outputTokens)}` : `${m.outputTokens} tok`;
     cur.lines.push(`${c.cyan(`t${m.t}`)}  ${what}  ${c.dim(tok)}${m.text ? c.dim(`  “${m.text}”`) : ""}`);
   } else if (m.type === "tool") {

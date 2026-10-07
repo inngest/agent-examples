@@ -68,6 +68,19 @@ async function snapshot(store: FileStore): Promise<Record<string, string>> {
   return out;
 }
 
+// What to say after a turn without a tool call. A cut-off turn that was
+// mostly reasoning (mistral-large-4-0 at 4,000 tokens: 3,084-3,909 of them
+// reasoning, every turn) needs "stop thinking and act", not "make a smaller
+// edit": its reasoning isn't kept, so the next turn would think from scratch.
+const idleNudge = (res: ChatResponse): string => {
+  if (res.choices?.[0]?.finish_reason !== "length") return "Use the tools, then call finish_attempt.";
+  const out = res.usage?.completion_tokens ?? 0;
+  const reasoning = res.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+  if (out > 0 && reasoning >= out / 2)
+    return `You ran out of room for this turn while thinking (${reasoning} of ${out} output tokens were reasoning), so no tool call was made, and that reasoning is not kept. Keep your thinking short and make the tool call right away. If the whole change doesn't fit, make the first part of it with edit_file now.`;
+  return "Your output was cut off before you made a tool call. Make a smaller edit with edit_file instead.";
+};
+
 const oneLine = (s: string, max: number) => s.replace(/\s+/g, " ").trim().slice(0, max);
 
 const isJsonObject = (s: string) => {
@@ -240,19 +253,14 @@ export const agentAttempt = inngest.createFunction(
         finishReason: res.choices?.[0]?.finish_reason ?? "",
         text: excerpt(msg?.content),
         outputTokens: res.usage?.completion_tokens ?? 0,
+        reasoningTokens: res.usage?.completion_tokens_details?.reasoning_tokens,
         inputTokens: res.usage?.prompt_tokens ?? 0,
         provider: (res as { provider?: string }).provider,
       });
 
       if (calls.length === 0) {
         idleTurns++;
-        messages.push({
-          role: "user",
-          content:
-            res.choices?.[0]?.finish_reason === "length"
-              ? "Your output was cut off before you made a tool call. Make a smaller edit with edit_file instead."
-              : "Use the tools, then call finish_attempt.",
-        });
+        messages.push({ role: "user", content: idleNudge(res) });
         continue;
       }
       turns++;

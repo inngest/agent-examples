@@ -54,6 +54,7 @@ export type AttemptMessage =
       finishReason: string;
       text: string;
       outputTokens: number;
+      reasoningTokens?: number; // of outputTokens
       inputTokens?: number;
       provider?: string;
     }

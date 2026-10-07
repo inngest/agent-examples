@@ -315,3 +315,9 @@
 - Cause: a turn that returned neither text nor a tool call (e.g. everything spent on reasoning) went back into the history as `{ role: "assistant", content: null }`. Nemotron's providers accepted it; this one validates and rejects the *next* request, and a 400 is non-retriable, so the attempt failed (the loop counts it as a stall and goes on).
 - Fix: such a turn goes back as content `"(no output)"`. Dropping it instead would leave two user messages in a row (the nudge follows), which strict chat templates reject too.
 - Same family as the cut-off tool-call 400 (canon-3 #18): whatever goes back into the history has to be valid for the strictest provider, not just the one that produced it.
+
+### mistral-large-4-0: every turn cut off while thinking (canon-8, canon-9, ~20:16–20:23 UTC)
+
+- First try of a bigger model, `mistralai/mistral-large-4-0` (routed to Mistral's own API), on the default `maxTokensPerTurn` 4,000: **every turn** ended `finish_reason: length` with no tool call, 3,084–3,909 of the 4,000 output tokens reasoning, 37–69s each (~100 tok/s). Writing the port takes ~3k tokens on top. Reasoning from a cut-off turn isn't kept, so each turn started thinking from scratch: no progress possible.
+- The nudge after a cut-off said "make a smaller edit with edit_file", which is the right advice for a runaway (nemotron's whitespace) and the wrong one here. Now, when at least half the cut-off output was reasoning, it says it ran out of room while thinking, that the reasoning isn't kept, to keep thinking short and make the tool call now (the first part with edit_file if the whole change doesn't fit). Turn messages carry `reasoningTokens`; the TUI shows "cut off while reasoning: 3.5k of 4.0k".
+- The budget itself is per goal: for this model `--max-tokens 12000 --reasoning-max-tokens 5000`. Next harness idea, not done: raise the attempt's own budget after repeated reasoning cut-offs.
