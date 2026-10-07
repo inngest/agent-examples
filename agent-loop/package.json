@@ -1,0 +1,37 @@
+{
+  "name": "goal-loop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "golden": "go run ./golden",
+    "check:tools": "tsx check/tools-selftest.ts",
+    "check:selftest": "tsx check/selftest.ts",
+    "check": "tsx check/run-check.ts",
+    "workspace:reset": "tsx scripts/reset-workspace.ts",
+    "dev": "INNGEST_DEV=1 tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "start:worker": "tsx --env-file-if-exists=.env src/worker.ts",
+    "check:sandbox-smoke": "tsx --env-file-if-exists=.env check/sandbox-smoke.ts",
+    "goal:send": "tsx --env-file-if-exists=.env scripts/send-goal.ts",
+    "inngest": "node_modules/inngest-cli/bin/inngest dev --persist -u http://localhost:3000/api/inngest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "execa": "^10.0.1",
+    "express": "^5.2.1",
+    "inngest": "^4.21.1",
+    "simple-git": "^4.0.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.4",
+    "inngest-cli": "^1.45.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
