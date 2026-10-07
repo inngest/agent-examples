@@ -7,14 +7,16 @@ import type { CaseSet, CheckResult } from "../../check/types.js";
 import { backend, filesRef, templateFiles, type Files } from "../lib/backend.js";
 import { headSha, resetHard } from "../lib/git.js";
 import { recordScore } from "../lib/score.js";
+import { liveLoop } from "../lib/live.js";
+import { excerpt, type AttemptOutcome } from "./channel.js";
 
 // Inngest caps a run at 1000 steps (platform limit; the SDK itself doesn't
-// enforce it). Each iteration uses at most ~5 steps (invoke, check, sendEvent,
-// score, revert-or-rebaseline; an unchanged attempt skips check and revert)
-// plus an occasional review wait, so budget 7 per iteration and reserve ~10
-// for baseline/holdout/finished.
+// enforce it). Each iteration uses at most ~6 steps (invoke, check, sendEvent,
+// score, revert-or-rebaseline, live publish; an unchanged attempt skips check
+// and revert) plus an occasional review wait and its two live publishes, so
+// budget 9 per iteration and reserve ~10 for baseline/holdout/finished.
 const STEP_LIMIT = 1000;
-const STEPS_PER_ITERATION = 7;
+const STEPS_PER_ITERATION = 9;
 const RESERVED_STEPS = 10;
 const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_ITERATION); // 141
 
@@ -84,6 +86,14 @@ export const goalLoop = inngest.createFunction(
         return { ...(await check({ commit: filesRef(files), files }, "train")), files };
       }
       return check({ commit: await headSha() }, "train");
+    });
+
+    await liveLoop(step, "live-started", goalId, {
+      type: "goal.started",
+      model,
+      maxAttempts,
+      maxStalls,
+      baseline: { failed: baseline.failed, total: baseline.total, score: baseline.score },
     });
 
     let best: Best = baseline;
@@ -162,6 +172,8 @@ export const goalLoop = inngest.createFunction(
           turns: attempt.turns,
           idleTurns: attempt.idleTurns,
           costUsd: attempt.costUsd,
+          summary: excerpt(attempt.summary, 200),
+          report: result.report,
         }),
       );
       await recordScore(step, `score-${i}`, "check.fail_rate", result.score);
@@ -173,7 +185,14 @@ export const goalLoop = inngest.createFunction(
         best = { ...rebaselined, files: best.files };
       }
 
-      if (attempt.changed && result.score < best.score) {
+      const outcome: AttemptOutcome = !attempt.changed
+        ? attempt.turns === 0 && attempt.costUsd === 0
+          ? "failed"
+          : "unchanged"
+        : result.score < best.score
+          ? "kept"
+          : "reverted";
+      if (outcome === "kept") {
         best = { ...result, files: attempt.files };
         stalls = 0;
       } else {
@@ -188,13 +207,36 @@ export const goalLoop = inngest.createFunction(
         }
       }
 
+      await liveLoop(step, `live-scored-${i}`, goalId, {
+        type: "attempt.scored",
+        i,
+        score: result.score,
+        failed: result.failed,
+        total: result.total,
+        changed: attempt.changed,
+        turns: attempt.turns,
+        idleTurns: attempt.idleTurns,
+        costUsd: attempt.costUsd,
+        outcome,
+        bestScore: best.score,
+        stalls,
+        summary: excerpt(attempt.summary, 200),
+      });
+
       if (result.pass) break;
 
       if (stalls >= maxStalls) {
+        await liveLoop(step, `live-review-${i}`, goalId, { type: "review.waiting", i, stalls, bestScore: best.score, report: best.report });
         const review = await step.waitForEvent(`review-${i}`, {
           event: goalReviewSubmitted,
           match: "data.goalId",
           timeout: "3d",
+        });
+        await liveLoop(step, `live-resumed-${i}`, goalId, {
+          type: "review.resumed",
+          i,
+          action: review?.data.action ?? "timeout",
+          note: review?.data.note,
         });
         if (!review || review.data.action === "stop") break;
         humanNote = review.data.note;
@@ -225,6 +267,14 @@ export const goalLoop = inngest.createFunction(
         tokens: totalTokens,
       }),
     );
+
+    await liveLoop(step, "live-finished", goalId, {
+      type: "goal.finished",
+      attempts,
+      costUsd: totalCostUsd,
+      best: bestSummary,
+      holdout: holdoutSummary,
+    });
 
     return { best: bestSummary, holdout: holdoutSummary, attempts, costUsd: totalCostUsd, tokens: totalTokens };
   },

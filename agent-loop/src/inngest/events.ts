@@ -8,7 +8,7 @@ export const GOAL_DEFAULTS = {
   maxAttempts: 60,
   maxStalls: 5,
   maxTurnsPerAttempt: 8,
-  maxTokensPerTurn: 8000,
+  maxTokensPerTurn: 4000,
 } as const;
 
 // Used when neither the event nor the MODEL env var names a model.
@@ -22,7 +22,7 @@ export const goalStarted = eventType("goal/started", {
     maxStalls: z.number().int().positive().optional(), // default 5
     maxTurnsPerAttempt: z.number().int().positive().optional(), // default 8
     reasoningEffort: z.enum(["low", "medium", "high"]).optional(), // opt-in, thinking models only
-    maxTokensPerTurn: z.number().int().positive().optional(), // default 8000
+    maxTokensPerTurn: z.number().int().positive().optional(), // default 4000
     reasoningMaxTokens: z.number().int().positive().optional(), // opt-in, thinking models only; takes precedence over reasoningEffort
   }),
 });
@@ -51,6 +51,8 @@ export const goalAttemptScored = eventType("goal/attempt.scored", {
     turns: z.number(),
     idleTurns: z.number(), // turns that ended without a tool call
     costUsd: z.number(),
+    summary: z.string().optional(), // what the attempt says it did (finish_attempt), clipped
+    report: z.string().optional(), // the check report for this result (what still fails)
   }),
 });
 

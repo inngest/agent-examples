@@ -17,10 +17,12 @@
     "start:worker": "tsx --env-file-if-exists=.env src/worker.ts",
     "check:sandbox-smoke": "tsx --env-file-if-exists=.env check/sandbox-smoke.ts",
     "goal:send": "tsx --env-file-if-exists=.env scripts/send-goal.ts",
+    "goal:watch": "tsx --env-file-if-exists=.env scripts/watch-goal.ts",
     "inngest": "node_modules/inngest-cli/bin/inngest dev --persist -u http://localhost:3000/api/inngest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mariozechner/pi-tui": "^0.73.1",
     "execa": "^10.0.1",
     "express": "^5.2.1",
     "inngest": "^4.21.1",

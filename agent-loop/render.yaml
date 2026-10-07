@@ -31,6 +31,10 @@ services:
       # Default agent model; a goal/started event can still set data.model.
       - key: MODEL
         value: nvidia/nemotron-3.5-lightning
+      # OpenRouter provider preference for MODEL (comma-separated, tried in order).
+      # CoreWeave's nemotron emits runaway whitespace and empty tool calls.
+      - key: MODEL_PROVIDERS
+        value: Phala
       # local = git workspace on disk (dev); sandbox = step state + Inngest Sandboxes.
       - key: WORKSPACE_BACKEND
         value: sandbox

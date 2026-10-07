@@ -6,6 +6,8 @@ import { buildBrief, SYSTEM_PROMPT } from "../lib/prompt.js";
 import { commitAll, headMessage, headSha, isDirty, resetHard } from "../lib/git.js";
 import { backend, filesRef } from "../lib/backend.js";
 import { localFsStore, memoryStore } from "../lib/file-store.js";
+import { liveAttempt, liveAttemptInStep } from "../lib/live.js";
+import { excerpt } from "./channel.js";
 
 const AttemptInput = z.object({
   goalId: z.string(),
@@ -39,6 +41,15 @@ const EMPTY_FINISH_REFUSAL =
 
 const oneLine = (s: string, max: number) => s.replace(/\s+/g, " ").trim().slice(0, max);
 
+const isJsonObject = (s: string) => {
+  try {
+    const v = JSON.parse(s);
+    return typeof v === "object" && v !== null && !Array.isArray(v);
+  } catch {
+    return false;
+  }
+};
+
 export const agentAttempt = inngest.createFunction(
   { id: "agent-attempt", retries: 2, triggers: [invoke(AttemptInput)] },
   async ({ event, step }) => {
@@ -64,10 +75,14 @@ export const agentAttempt = inngest.createFunction(
     const sandbox = backend() === "sandbox";
     const files = new Map<string, string>();
     if (sandbox) {
-      const seed = await step.run("prepare", async () => ({ seed: bestFiles ?? {} }));
+      const seed = await step.run("prepare", async () => {
+        await liveAttemptInStep(goalId, { type: "attempt.started", i });
+        return { seed: bestFiles ?? {} };
+      });
       for (const [p, c] of Object.entries(seed.seed)) files.set(p, c);
     } else {
       await step.run("prepare", async () => {
+        await liveAttemptInStep(goalId, { type: "attempt.started", i });
         await resetHard(bestCommit);
         return { reset: bestCommit };
       });
@@ -86,6 +101,8 @@ export const agentAttempt = inngest.createFunction(
     let turns = 0;
 
     const baseUrl = process.env.MODEL_BASE_URL ?? "https://openrouter.ai/api/v1/";
+    const preferred = (process.env.MODEL_PROVIDERS ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+    const providerRouting = preferred.length ? { order: preferred } : { sort: "throughput" };
     const apiKey = process.env.MODEL_API_KEY ?? process.env.OPENROUTER_API_KEY;
 
     // `turns` counts turns that acted through a tool and is what maxTurns
@@ -117,9 +134,12 @@ export const agentAttempt = inngest.createFunction(
           tool_choice: "required",
           // OpenRouter otherwise may route to a provider that silently ignores
           // tool_choice; only route to providers that honour every parameter.
-          // Among those, take the fastest: default routing once sent nemotron
-          // to a 8 tok/s provider (a 9-minute turn) while another did 240 tok/s.
-          ...(baseUrl.includes("openrouter.ai") ? { provider: { require_parameters: true, sort: "throughput" } } : {}),
+          // MODEL_PROVIDERS (comma-separated) pins a preference order: the same
+          // model differs by provider (replaying one nemotron request: CoreWeave
+          // ran away or re-listed files 5/5, Phala made the edit 5/5). Without
+          // it, take the fastest: default routing once sent nemotron to an
+          // 8 tok/s provider (a 9-minute turn) while another did 240 tok/s.
+          ...(baseUrl.includes("openrouter.ai") ? { provider: { require_parameters: true, ...providerRouting } } : {}),
           ...(reasoning ? { reasoning } : {}),
           max_tokens: maxTokensPerTurn,
         } as never,
@@ -131,10 +151,25 @@ export const agentAttempt = inngest.createFunction(
 
       const msg = res.choices?.[0]?.message;
       const calls = (msg?.tool_calls ?? []) as ToolCall[];
+      // A call cut off mid-arguments (finish_reason "length") still runs and
+      // gets the tool's "not valid JSON" error, but echoing the broken
+      // arguments back makes providers reject the whole next request (400,
+      // non-retriable), which fails the attempt. History gets "{}" instead.
       messages.push({
         role: "assistant",
         content: msg?.content ?? null,
-        ...(calls.length ? { tool_calls: calls } : {}),
+        ...(calls.length
+          ? { tool_calls: calls.map((c) => (isJsonObject(c.function.arguments) ? c : { ...c, function: { ...c.function, arguments: "{}" } })) }
+          : {}),
+      });
+      await liveAttempt(step, `live-turn-${t}`, goalId, {
+        type: "turn",
+        i,
+        t,
+        toolCalls: calls.length,
+        finishReason: res.choices?.[0]?.finish_reason ?? "",
+        text: excerpt(msg?.content),
+        outputTokens: res.usage?.completion_tokens ?? 0,
       });
 
       if (calls.length === 0) {
@@ -155,17 +190,20 @@ export const agentAttempt = inngest.createFunction(
         // `id` stays stable for memoization; `name` is display-only, so the
         // trace reads "tool-3-1: edit_file" without affecting replay.
         const id = `tool-${t}-${n + 1}`;
-        const out = await step.run({ id, name: `${id}: ${call.function.name}` }, async () =>
-          executeTool(
+        const out = await step.run({ id, name: `${id}: ${call.function.name}` }, async () => {
+          const r = await executeTool(
             sandbox ? memoryStore(Object.fromEntries(files)) : localFsStore,
             call.function.name,
             call.function.arguments,
-          ),
-        );
+          );
+          await liveAttemptInStep(goalId, { type: "tool", i, t, n: n + 1, name: call.function.name, result: excerpt(r.result, 120) });
+          return r;
+        });
         for (const [p, c] of Object.entries(out.changed ?? {})) files.set(p, c);
         if (/^(wrote|edited) /.test(out.result)) edited = true;
         if (out.finished !== undefined && !edited && emptyFinishRefusals < MAX_EMPTY_FINISH_REFUSALS) {
           emptyFinishRefusals++;
+          await liveAttempt(step, `live-refused-${t}-${n + 1}`, goalId, { type: "finish.refused", i, t });
           messages.push({ role: "tool", tool_call_id: call.id, content: EMPTY_FINISH_REFUSAL });
           continue;
         }
