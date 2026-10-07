@@ -43,7 +43,20 @@ export type LoopMessage =
 // tool call. `text` is a short excerpt of what the model said, if anything.
 export type AttemptMessage =
   | { type: "attempt.started"; i: number }
-  | { type: "turn"; i: number; t: number; toolCalls: number; finishReason: string; text: string; outputTokens: number }
+  // `inputTokens` is the whole prompt this turn (system, brief, history), i.e.
+  // how much of the context window the attempt is using; `provider` is who
+  // served it (OpenRouter).
+  | {
+      type: "turn";
+      i: number;
+      t: number;
+      toolCalls: number;
+      finishReason: string;
+      text: string;
+      outputTokens: number;
+      inputTokens?: number;
+      provider?: string;
+    }
   | { type: "tool"; i: number; t: number; n: number; name: string; result: string }
   | { type: "finish.refused"; i: number; t: number };
 

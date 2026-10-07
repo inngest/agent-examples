@@ -23,4 +23,4 @@ ENV NODE_ENV=production
 
 # RENDER_GIT_COMMIT is provided by Render; used as the app version for Inngest
 # rolling deploys unless INNGEST_APP_VERSION is set explicitly.
-CMD ["sh", "-c", "INNGEST_APP_VERSION=${INNGEST_APP_VERSION:-$RENDER_GIT_COMMIT} exec node --import tsx src/worker.ts"]
+CMD ["sh", "-c", "INNGEST_APP_VERSION=${INNGEST_APP_VERSION:-$RENDER_GIT_COMMIT} exec node --import @inngest/otel/node --import tsx src/worker.ts"]

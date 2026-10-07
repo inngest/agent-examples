@@ -1,4 +1,4 @@
-// pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N]
+// pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N]
 // Live terminal view of one goal: the score per attempt, keep/revert, the
 // stall counter, the attempt in flight (turns and tool calls), and, when the
 // loop pauses for review, an editor to send the note (or stop) from here.
@@ -15,6 +15,7 @@ import { inngest } from "../src/inngest/client.js";
 import { GOAL_DEFAULTS, goalReviewSubmitted } from "../src/inngest/events.js";
 import { goalChannel, type AttemptMessage, type AttemptOutcome, type LoopMessage, type ScoredMessage } from "../src/inngest/channel.js";
 import { loadGoalHistory } from "../src/lib/goal-history.js";
+import { contextWindow } from "../src/lib/context-window.js";
 import { parseGoalArgs, startGoal } from "../src/lib/start-goal.js";
 import { resetWorkspace } from "../src/lib/reset-workspace.js";
 import { backend } from "../src/lib/backend.js";
@@ -23,7 +24,7 @@ const argv = process.argv.slice(2);
 const goalArgs = parseGoalArgs(argv);
 const goalId = goalArgs.goalId;
 if (!goalId) {
-  console.error("usage: pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N]");
+  console.error("usage: pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N]");
   process.exit(2);
 }
 
@@ -39,7 +40,21 @@ const state = {
   maxAttempts: goalArgs.maxAttempts ?? (GOAL_DEFAULTS.maxAttempts as number),
   maxStalls: goalArgs.maxStalls ?? (GOAL_DEFAULTS.maxStalls as number),
   rows: new Map<number, ScoredMessage>(),
-  current: undefined as { i: number; since: number; lines: string[]; seen: Set<string> } | undefined,
+  current: undefined as
+    | {
+        i: number;
+        since: number;
+        lines: string[];
+        seen: Set<string>;
+        // Context in use after the latest turn (its prompt + its output), who
+        // served it, and that provider's window for the model.
+        ctx?: number;
+        provider?: string;
+        window?: number;
+      }
+    | undefined,
+  // Peak context per attempt, as a share of the window (live data only).
+  peakCtx: new Map<number, number>(),
   waiting: false,
   lastNote: "",
   // The best attempt's check report: shown in the review pane.
@@ -56,6 +71,13 @@ const sorted = () => [...state.rows.values()].sort((a, b) => a.i - b.i);
 const lastRow = () => sorted().at(-1);
 const totalCost = () => sorted().reduce((s, r) => s + r.costUsd, 0);
 const fmtScore = (s: number) => s.toFixed(3);
+const kTok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : String(n));
+function meter(used: number, window: number, cells = 12) {
+  const share = Math.min(1, used / window);
+  const filled = Math.round(share * cells);
+  const colour = share > 0.8 ? c.red : share > 0.5 ? c.yellow : c.green;
+  return `${colour("█".repeat(filled))}${c.dim("░".repeat(cells - filled))} ${kTok(used)} / ${kTok(window)} (${Math.round(share * 100)}%)`;
+}
 const ago = (ms: number) => {
   const s = Math.floor((Date.now() - ms) / 1000);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
@@ -74,11 +96,24 @@ function onAttempt(m: AttemptMessage) {
   if (cur.seen.has(key)) return;
   cur.seen.add(key);
   if (m.type === "turn") {
+    if (m.inputTokens) {
+      cur.ctx = m.inputTokens + m.outputTokens;
+      cur.provider = m.provider ?? cur.provider;
+      const i = m.i;
+      const used = cur.ctx;
+      void contextWindow(state.model ?? "", cur.provider).then((w) => {
+        if (!w) return;
+        if (state.current?.i === i) state.current.window = w;
+        state.peakCtx.set(i, Math.max(state.peakCtx.get(i) ?? 0, used / w));
+        tui.requestRender();
+      });
+    }
     const what =
       m.toolCalls > 0
         ? `${m.toolCalls} tool call${m.toolCalls > 1 ? "s" : ""}`
         : c.yellow(`no tool call${m.finishReason === "length" ? " (cut off at the token limit)" : ""}`);
-    cur.lines.push(`${c.cyan(`t${m.t}`)}  ${what}  ${c.dim(`${m.outputTokens} tok`)}${m.text ? c.dim(`  “${m.text}”`) : ""}`);
+    const tok = m.inputTokens ? `in ${kTok(m.inputTokens)} · out ${kTok(m.outputTokens)}` : `${m.outputTokens} tok`;
+    cur.lines.push(`${c.cyan(`t${m.t}`)}  ${what}  ${c.dim(tok)}${m.text ? c.dim(`  “${m.text}”`) : ""}`);
   } else if (m.type === "tool") {
     const ok = !m.result.startsWith("error");
     cur.lines.push(`${c.dim(`t${m.t}.${m.n}`)} ${c.bold(m.name.padEnd(14))} ${ok ? m.result : c.red(m.result)}`);
@@ -175,7 +210,10 @@ class Dashboard implements Component {
           `  ${c.dim(`#${String(row.i).padStart(2)}`)} ${outcomeColour[row.outcome](row.outcome.padEnd(9))} ` +
             `${String(row.failed).padStart(6)}/${row.total} failing  ${fmtScore(row.score)}  ` +
             `${row.changed ? (delta < 0 ? c.green : c.yellow)(((delta >= 0 ? "+" : "") + delta).padStart(7)) : "       "}  ` +
-            c.dim(`turns ${row.turns} idle ${row.idleTurns}  $${row.costUsd.toFixed(4)}`),
+            c.dim(
+              `turns ${row.turns} idle ${row.idleTurns}  $${row.costUsd.toFixed(4)}` +
+                (state.peakCtx.has(row.i) ? `  ctx ${Math.round(state.peakCtx.get(row.i)! * 100)}%` : ""),
+            ),
         ),
       );
     }
@@ -193,7 +231,8 @@ class Dashboard implements Component {
       out.push(...reviewPane(width, rows));
     } else if (state.current) {
       const cur = state.current;
-      out.push(fit(`${c.bold(`attempt ${cur.i}`)} ${c.dim(`running ${ago(cur.since)}`)}`));
+      const ctx = cur.ctx === undefined ? "" : `  context ${cur.window ? meter(cur.ctx, cur.window) : `${kTok(cur.ctx)} tok`}`;
+      out.push(fit(`${c.bold(`attempt ${cur.i}`)} ${c.dim(`running ${ago(cur.since)}${cur.provider ? ` · ${cur.provider}` : ""}`)}${ctx}`));
       for (const l of cur.lines.slice(-10)) out.push(fit(`  ${l}`));
     } else if (state.running) {
       out.push(fit(c.dim(state.rows.size ? "waiting for the next attempt…" : "starting: scoring the baseline…")));
@@ -220,6 +259,7 @@ function startSummary() {
     `${g.maxAttempts ?? GOAL_DEFAULTS.maxAttempts} attempts`,
     `${g.maxStalls ?? GOAL_DEFAULTS.maxStalls} stalls`,
     `${g.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn} tok/turn`,
+    g.reasoningMaxTokens ? `reasoning ${g.reasoningMaxTokens} tok` : g.reasoningEffort ? `reasoning ${g.reasoningEffort}` : "reasoning: worker env",
     resetsWorkspace ? "resets workspace" : "",
   ]
     .filter(Boolean)

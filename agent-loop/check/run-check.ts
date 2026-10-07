@@ -21,6 +21,7 @@ export async function scoreImpl(opts: {
   implPath: string;
   set: CaseSet;
   timeoutMs?: number;
+  against?: string; // failBits to report regressions against
 }): Promise<ScoreResult> {
   // NOTE: runs `node --import tsx`, not the tsx CLI. The tsx CLI spawns a grandchild and a
   // timeout kill leaves a spinning orphan behind (see BUILD_LOG.md).
@@ -48,6 +49,7 @@ export async function scoreImpl(opts: {
     stdout: String(res.stdout ?? ""),
     timedOut: Boolean(res.timedOut),
     timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
+    against: opts.against,
   });
 }
 
@@ -55,14 +57,14 @@ export async function scoreImpl(opts: {
 
 const git = (cwd: string, args: string[]) => execa("git", args, { cwd, stdin: "ignore" });
 
-export async function runCheck(opts: { commit: string; set: CaseSet }): Promise<CheckResult> {
+export async function runCheck(opts: { commit: string; set: CaseSet; against?: string }): Promise<CheckResult> {
   const tmpRoot = path.join(CHECK_DIR, ".tmp");
   fs.mkdirSync(tmpRoot, { recursive: true });
   const dir = path.join(tmpRoot, `${Date.now()}-${randomBytes(4).toString("hex")}`);
   try {
     await git(WORKSPACE_DIR, ["worktree", "add", "--detach", dir, opts.commit]);
     const { stdout: sha } = await git(dir, ["rev-parse", "HEAD"]);
-    const { byFn: _byFn, ...scored } = await scoreImpl({ implPath: path.join(dir, "src", "semver.ts"), set: opts.set });
+    const scored = await scoreImpl({ implPath: path.join(dir, "src", "semver.ts"), set: opts.set, against: opts.against });
     return { commit: sha.trim(), ...scored };
   } finally {
     await git(WORKSPACE_DIR, ["worktree", "remove", "--force", dir]).catch(() => {});

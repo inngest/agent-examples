@@ -7,6 +7,7 @@ import type { CaseSet, CheckResult } from "../../check/types.js";
 import { backend, filesRef, templateFiles, type Files } from "../lib/backend.js";
 import { headSha, resetHard } from "../lib/git.js";
 import { recordScore } from "../lib/score.js";
+import type { JournalEntry, Regressions } from "../lib/prompt.js";
 import { liveLoop } from "../lib/live.js";
 import { excerpt, type AttemptOutcome } from "./channel.js";
 
@@ -50,10 +51,15 @@ const isAttemptResult = (x: unknown): x is AttemptResult => {
   );
 };
 
-const check = (at:{ commit: string; files?: Files }, set: CaseSet): Promise<CheckResult> =>
+// `against`: the best result's failBits, so the check reports the cases this
+// attempt broke (train only).
+const check = (at: { commit: string; files?: Files }, set: CaseSet, against?: string): Promise<CheckResult> =>
   backend() === "sandbox"
-    ? runCheckSandbox({ files: at.files ?? {}, ref: at.commit, set })
-    : runCheck({ commit: at.commit, set });
+    ? runCheckSandbox({ files: at.files ?? {}, ref: at.commit, set, against })
+    : runCheck({ commit: at.commit, set, against });
+
+// Recent attempts shown to the next one (see buildBrief).
+const JOURNAL_SIZE = 5;
 
 export const goalLoop = inngest.createFunction(
   {
@@ -72,10 +78,21 @@ export const goalLoop = inngest.createFunction(
     const maxStalls = event.data.maxStalls ?? GOAL_DEFAULTS.maxStalls;
     const maxTurns = event.data.maxTurnsPerAttempt ?? GOAL_DEFAULTS.maxTurnsPerAttempt;
     // Reasoning controls are opt-in: sending `reasoning` to a non-thinking model
-    // makes OpenRouter (with require_parameters) find no provider at all.
-    const reasoningEffort = event.data.reasoningEffort;
+    // makes OpenRouter (with require_parameters) find no provider at all. The
+    // event wins; otherwise the worker's REASONING_EFFORT / REASONING_MAX_TOKENS,
+    // read once in a step like MODEL. Reasoning tokens count against
+    // maxTokensPerTurn, so raise that too when turning reasoning up.
+    const reasoningEnv = await step.run("resolve-reasoning", async () => {
+      const raw = process.env.REASONING_EFFORT?.trim().toLowerCase();
+      const maxTokens = Number(process.env.REASONING_MAX_TOKENS);
+      return {
+        effort: (["low", "medium", "high"] as const).find((e) => e === raw),
+        maxTokens: Number.isInteger(maxTokens) && maxTokens > 0 ? maxTokens : undefined,
+      };
+    });
+    const reasoningEffort = event.data.reasoningEffort ?? reasoningEnv.effort;
     const maxTokensPerTurn = event.data.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn;
-    const reasoningMaxTokens = event.data.reasoningMaxTokens;
+    const reasoningMaxTokens = event.data.reasoningMaxTokens ?? reasoningEnv.maxTokens;
 
     const sandbox = backend() === "sandbox";
 
@@ -99,6 +116,9 @@ export const goalLoop = inngest.createFunction(
     let best: Best = baseline;
     let stalls = 0;
     let humanNote: string | undefined;
+    // Attempt-to-attempt context, rebuilt on replay from memoized results only.
+    let journal: JournalEntry[] = [];
+    let regressions: Regressions | undefined;
     let attempts = 0;
     let totalCostUsd = 0;
     const totalTokens = { input: 0, output: 0 };
@@ -131,6 +151,9 @@ export const goalLoop = inngest.createFunction(
             bestCommit: best.commit,
             bestFiles: best.files,
             report: best.report,
+            examples: best.examples,
+            journal,
+            regressions,
             humanNote,
             best: { failed: best.failed, total: best.total },
             model,
@@ -152,7 +175,7 @@ export const goalLoop = inngest.createFunction(
       // invoke, so the step ids stay deterministic. A check change made in the
       // meantime is picked up by the next attempt that does change something.
       const result: CheckResult = attempt.changed
-        ? await step.run(`check-${i}`, () => check({ commit: attempt.commit, files: attempt.files }, "train"))
+        ? await step.run(`check-${i}`, () => check({ commit: attempt.commit, files: attempt.files }, "train", best.failBits))
         : best;
 
       await step.sendEvent(
@@ -178,6 +201,10 @@ export const goalLoop = inngest.createFunction(
       );
       await recordScore(step, `score-${i}`, "check.fail_rate", result.score);
 
+      // Regressions were computed against this best's failBits; they're only
+      // meaningful if the check didn't change in between.
+      const checkedAgainstVersion = best.checkVersion;
+
       // The check changed under us (e.g. cases edited mid-run): re-score the
       // incumbent with the new check so scores stay comparable.
       if (attempt.changed && result.checkVersion !== best.checkVersion) {
@@ -192,6 +219,21 @@ export const goalLoop = inngest.createFunction(
         : result.score < best.score
           ? "kept"
           : "reverted";
+      // Per-function change against the best before this attempt (re-scored
+      // above if the check changed, so both are under the same version).
+      const prevBest = best;
+      const delta =
+        attempt.changed && result.byFn && prevBest.byFn
+          ? Object.fromEntries(Object.entries(result.byFn).map(([fn, v]) => [fn, v.failed - (prevBest.byFn?.[fn]?.failed ?? 0)]))
+          : undefined;
+      journal = [
+        ...journal,
+        { i, outcome, failed: result.failed, summary: excerpt(attempt.summary, 160), ...(delta ? { delta } : {}) },
+      ].slice(-JOURNAL_SIZE);
+      if (outcome === "kept") regressions = undefined;
+      else if (outcome === "reverted" && result.checkVersion === checkedAgainstVersion && result.regressions?.count)
+        regressions = { i, count: result.regressions.count, examples: result.regressions.examples };
+
       if (outcome === "kept") {
         best = { ...result, files: attempt.files };
         stalls = 0;

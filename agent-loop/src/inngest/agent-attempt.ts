@@ -8,6 +8,7 @@ import { backend, filesRef } from "../lib/backend.js";
 import { localFsStore, memoryStore } from "../lib/file-store.js";
 import { liveAttempt, liveAttemptInStep } from "../lib/live.js";
 import { excerpt } from "./channel.js";
+import { modelCallMode, modelCaller, type ChatResponse } from "../lib/model-call.js";
 
 const AttemptInput = z.object({
   goalId: z.string(),
@@ -15,6 +16,21 @@ const AttemptInput = z.object({
   bestCommit: z.string(),
   bestFiles: z.record(z.string(), z.string()).optional(), // sandbox backend only: the best files to start from
   report: z.string(),
+  // Attempt-to-attempt context (see buildBrief): the best result's example
+  // pool, recent attempts, and what the last reverted attempt broke.
+  examples: z.array(z.string()).optional(),
+  journal: z
+    .array(
+      z.object({
+        i: z.number(),
+        outcome: z.enum(["kept", "reverted", "unchanged", "failed"]),
+        failed: z.number(),
+        summary: z.string(),
+        delta: z.record(z.string(), z.number()).optional(),
+      }),
+    )
+    .optional(),
+  regressions: z.object({ i: z.number(), count: z.number(), examples: z.array(z.string()) }).optional(),
   humanNote: z.string().optional(),
   best: z.object({ failed: z.number(), total: z.number() }),
   model: z.string(),
@@ -52,9 +68,24 @@ const isJsonObject = (s: string) => {
 
 export const agentAttempt = inngest.createFunction(
   { id: "agent-attempt", retries: 2, triggers: [invoke(AttemptInput)] },
-  async ({ event, step }) => {
-    const { goalId, i, bestCommit, bestFiles, report, humanNote, best, model, maxTurns, reasoningEffort, maxTokensPerTurn, reasoningMaxTokens } =
-      event.data;
+  async ({ event, step, logger }) => {
+    const {
+      goalId,
+      i,
+      bestCommit,
+      bestFiles,
+      report,
+      examples,
+      journal,
+      regressions,
+      humanNote,
+      best,
+      model,
+      maxTurns,
+      reasoningEffort,
+      maxTokensPerTurn,
+      reasoningMaxTokens,
+    } = event.data;
 
     // OpenRouter treats reasoning.effort and reasoning.max_tokens as mutually
     // exclusive. Prefer the token budget (effort is not reliably honored), and
@@ -92,7 +123,7 @@ export const agentAttempt = inngest.createFunction(
     // reconstructs exactly the same messages.
     const messages: Msg[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildBrief({ i, best, humanNote, report }) },
+      { role: "user", content: buildBrief({ i, best, humanNote, report, examples, journal, regressions }) },
     ];
     const tokens = { input: 0, output: 0 };
     let summary = "";
@@ -124,9 +155,8 @@ export const agentAttempt = inngest.createFunction(
           content: "This is your last turn. Call finish_attempt now with a one-line summary of what you changed.",
         });
       }
-      const res = await step.ai.infer(`turn-${t}`, {
-        model: step.ai.models.openai({ model, baseUrl, apiKey }),
-        body: {
+      const body = {
+          model,
           messages,
           tools: TOOLS,
           // Every turn must act through a tool; finish_attempt is the only way out.
@@ -142,8 +172,21 @@ export const agentAttempt = inngest.createFunction(
           ...(baseUrl.includes("openrouter.ai") ? { provider: { require_parameters: true, ...providerRouting } } : {}),
           ...(reasoning ? { reasoning } : {}),
           max_tokens: maxTokensPerTurn,
-        } as never,
-      });
+        };
+      // Same step id either way, and both return the OpenAI response shape, so
+      // switching MODEL_CALL doesn't break replay of a run in flight.
+      const label = `${goalId} #${i} turn-${t}`;
+      const res: ChatResponse =
+        modelCallMode() === "worker"
+          ? ((await step.ai.wrap(
+              `turn-${t}`,
+              modelCaller({ baseURL: baseUrl, apiKey, label, logger }),
+              body,
+            )) as ChatResponse)
+          : ((await step.ai.infer(`turn-${t}`, {
+              model: step.ai.models.openai({ model, baseUrl, apiKey }),
+              body: body as never,
+            })) as ChatResponse);
 
       tokens.input += res.usage?.prompt_tokens ?? 0;
       tokens.output += res.usage?.completion_tokens ?? 0;
@@ -170,6 +213,8 @@ export const agentAttempt = inngest.createFunction(
         finishReason: res.choices?.[0]?.finish_reason ?? "",
         text: excerpt(msg?.content),
         outputTokens: res.usage?.completion_tokens ?? 0,
+        inputTokens: res.usage?.prompt_tokens ?? 0,
+        provider: (res as { provider?: string }).provider,
       });
 
       if (calls.length === 0) {
@@ -197,6 +242,7 @@ export const agentAttempt = inngest.createFunction(
             call.function.arguments,
           );
           await liveAttemptInStep(goalId, { type: "tool", i, t, n: n + 1, name: call.function.name, result: excerpt(r.result, 120) });
+          logger.info(`[${goalId} #${i} ${id}] ${call.function.name} → ${excerpt(r.result, 160)}`);
           return r;
         });
         for (const [p, c] of Object.entries(out.changed ?? {})) files.set(p, c);

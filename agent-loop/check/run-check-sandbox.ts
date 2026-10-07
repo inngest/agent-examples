@@ -57,7 +57,7 @@ async function upload(sb: Sb, file: string, data: string): Promise<void> {
   }
 }
 
-export async function runCheckSandbox(opts: { files: Files; ref: string; set: CaseSet }): Promise<CheckResult> {
+export async function runCheckSandbox(opts: { files: Files; ref: string; set: CaseSet; against?: string }): Promise<CheckResult> {
   // Same reading as the SDK: INNGEST_DEV=0 / false means Cloud.
   const dev = (process.env.INNGEST_DEV ?? "").trim().toLowerCase();
   if (dev !== "" && dev !== "0" && dev !== "false") {
@@ -98,11 +98,12 @@ export async function runCheckSandbox(opts: { files: Files; ref: string; set: Ca
     // Partial output survives a timeout because the runner writes line by line.
     const dl = await sb.files.download({ path: `${WORKDIR}/out.jsonl` });
     const stdout = dl.ok ? await dl.text() : "";
-    const { byFn: _byFn, ...scored } = scoreFromRunnerOutput({
+    const scored = scoreFromRunnerOutput({
       set: opts.set,
       stdout,
       timedOut,
       timeoutMs: SANDBOX_TIMEOUT_MS,
+      against: opts.against,
     });
     return { commit: opts.ref, ...scored };
   } finally {

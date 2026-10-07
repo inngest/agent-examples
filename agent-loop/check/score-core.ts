@@ -9,6 +9,11 @@ import type { CaseSet, CheckResult } from "./types.js";
 
 const REPORT_MAX_CHARS = 2048;
 const MAX_EXAMPLES = 10;
+// Failing-case lines kept on the result for the loop to rotate through, one
+// window of MAX_EXAMPLES per attempt, so a stalled goal doesn't show every
+// attempt the same ten cases.
+const EXAMPLE_POOL = 60;
+const MAX_REGRESSIONS = 5;
 
 export type Case = { id: string; fn: string; args: unknown[]; expected: unknown };
 export type Row = { id: string; ok: boolean; actual?: unknown; error?: string };
@@ -71,6 +76,48 @@ export function sanitizeError(raw: string, max = 120): string {
   return clip(msg, max);
 }
 
+const byArgsLength = (a: Case, b: Case) => JSON.stringify(a.args).length - JSON.stringify(b.args).length;
+
+/** Failing cases, round-robin across the worst functions, shortest args first within each. */
+function pickExamples(cases: Case[], rows: Map<string, Row>, byFn: ScoreResult["byFn"], max: number): Case[] {
+  const worst = Object.entries(byFn)
+    .filter(([, v]) => v.failed > 0)
+    .sort((a, b) => b[1].failed - a[1].failed || a[0].localeCompare(b[0]));
+  const perFn = new Map<string, Case[]>();
+  for (const c of cases) {
+    if (rows.get(c.id)?.ok) continue;
+    if (!perFn.has(c.fn)) perFn.set(c.fn, []);
+    perFn.get(c.fn)!.push(c);
+  }
+  for (const list of perFn.values()) list.sort(byArgsLength);
+
+  const picked: Case[] = [];
+  for (let round = 0; picked.length < max; round++) {
+    let any = false;
+    for (const [fn] of worst) {
+      const c = perFn.get(fn)?.[round];
+      if (c && picked.length < max) {
+        picked.push(c);
+        any = true;
+      }
+    }
+    if (!any) break;
+  }
+  return picked;
+}
+
+/** `Fn(args) expected X, got Y` (or threw / no result), without the leading "- ". */
+function exampleLine(c: Case, rows: Map<string, Row>): string {
+  const r = rows.get(c.id);
+  const args = c.args.map((a) => showValue(a)).join(", ");
+  const outcome = r
+    ? r.error !== undefined
+      ? `threw: ${sanitizeError(r.error)}`
+      : `got ${showValue(r.actual)}`
+    : "no result (run did not finish)";
+  return `${c.fn}(${args}) expected ${showValue(c.expected)}, ${outcome}`;
+}
+
 export function buildReport(
   cases: Case[],
   rows: Map<string, Row>,
@@ -86,38 +133,9 @@ export function buildReport(
   lines.push(`Failures by function: ${worst.length ? worst.map(([k, v]) => `${k} ${v.failed}/${v.total}`).join(", ") : "none"}`);
   if (note) lines.push(`Note: ${note}`);
 
-  // failing cases per fn, shortest args first (easiest to read and reason about)
-  const perFn = new Map<string, Case[]>();
-  for (const c of cases) {
-    if (rows.get(c.id)?.ok) continue;
-    if (!perFn.has(c.fn)) perFn.set(c.fn, []);
-    perFn.get(c.fn)!.push(c);
-  }
-  for (const list of perFn.values()) list.sort((a, b) => JSON.stringify(a.args).length - JSON.stringify(b.args).length);
-
-  const picked: Case[] = [];
-  for (let round = 0; picked.length < MAX_EXAMPLES; round++) {
-    let any = false;
-    for (const [fn] of worst) {
-      const c = perFn.get(fn)?.[round];
-      if (c && picked.length < MAX_EXAMPLES) {
-        picked.push(c);
-        any = true;
-      }
-    }
-    if (!any) break;
-  }
+  const picked = pickExamples(cases, rows, byFn, MAX_EXAMPLES);
   if (picked.length) lines.push("Example failures:");
-  for (const c of picked) {
-    const r = rows.get(c.id);
-    const args = c.args.map((a) => showValue(a)).join(", ");
-    const outcome = r
-      ? r.error !== undefined
-        ? `threw: ${sanitizeError(r.error)}`
-        : `got ${showValue(r.actual)}`
-      : "no result (run did not finish)";
-    lines.push(`- ${c.fn}(${args}) expected ${showValue(c.expected)}, ${outcome}`);
-  }
+  for (const c of picked) lines.push(`- ${exampleLine(c, rows)}`);
   const totals = `Total: ${failed} of ${total} cases failed.`;
   lines.push(totals);
 
@@ -134,9 +152,22 @@ export function buildReport(
 // ---- runner output -> result -----------------------------------------------
 
 export type ScoreResult = Omit<CheckResult, "commit"> & {
-  /** Per-function totals and failure counts (extra field; not part of CheckResult). */
   byFn: Record<string, { total: number; failed: number }>;
 };
+
+// One bit per case in file order (set = failing), base64: ~3KB for 17,752 cases.
+export function encodeFailBits(failing: boolean[]): string {
+  const bytes = new Uint8Array(Math.ceil(failing.length / 8));
+  failing.forEach((f, i) => {
+    if (f) bytes[i >> 3]! |= 1 << (i & 7);
+  });
+  return Buffer.from(bytes).toString("base64");
+}
+
+export function decodeFailBits(b64: string, n: number): boolean[] {
+  const bytes = Buffer.from(b64, "base64");
+  return Array.from({ length: n }, (_, i) => ((bytes[i >> 3] ?? 0) & (1 << (i & 7))) !== 0);
+}
 
 /** Parse the runner's JSONL stdout and turn it into a ScoreResult. */
 export function scoreFromRunnerOutput(opts: {
@@ -144,6 +175,9 @@ export function scoreFromRunnerOutput(opts: {
   stdout: string;
   timedOut: boolean;
   timeoutMs: number;
+  // failBits of the result to compare against (the current best): cases that
+  // pass there and fail here come back as `regressions`.
+  against?: string;
 }): ScoreResult {
   const checkVersion = computeCheckVersion();
   const cases = loadCases(opts.set);
@@ -177,14 +211,29 @@ export function scoreFromRunnerOutput(opts: {
     }
   }
   const total = cases.length;
-  return {
+  const base = {
     checkVersion,
     set: opts.set,
     total,
     failed,
     score: total === 0 ? 1 : failed / total,
     pass: failed === 0,
-    report: opts.set === "train" ? buildReport(cases, rows, byFn, failed, note) : "",
     byFn,
+  };
+  if (opts.set !== "train") return { ...base, report: "" };
+
+  const failing = cases.map((c) => !rows.get(c.id)?.ok);
+  let regressions: ScoreResult["regressions"];
+  if (opts.against) {
+    const before = decodeFailBits(opts.against, cases.length);
+    const broke = cases.filter((_, i) => failing[i] && !before[i]).sort(byArgsLength);
+    regressions = { count: broke.length, examples: broke.slice(0, MAX_REGRESSIONS).map((c) => exampleLine(c, rows)) };
+  }
+  return {
+    ...base,
+    report: buildReport(cases, rows, byFn, failed, note),
+    failBits: encodeFailBits(failing),
+    examples: pickExamples(cases, rows, byFn, EXAMPLE_POOL).map((c) => exampleLine(c, rows)),
+    ...(regressions ? { regressions } : {}),
   };
 }

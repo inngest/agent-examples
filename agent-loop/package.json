@@ -12,9 +12,9 @@
     "check:selftest": "tsx check/selftest.ts",
     "check": "tsx check/run-check.ts",
     "workspace:reset": "tsx scripts/reset-workspace.ts",
-    "dev": "INNGEST_DEV=1 tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
-    "start:worker": "tsx --env-file-if-exists=.env src/worker.ts",
+    "dev": "INNGEST_DEV=1 tsx watch --import @inngest/otel/node src/server.ts",
+    "start": "tsx --import @inngest/otel/node src/server.ts",
+    "start:worker": "tsx --env-file-if-exists=.env --import @inngest/otel/node src/worker.ts",
     "check:sandbox-smoke": "tsx --env-file-if-exists=.env check/sandbox-smoke.ts",
     "goal:send": "tsx --env-file-if-exists=.env scripts/send-goal.ts",
     "goal:watch": "tsx --env-file-if-exists=.env scripts/watch-goal.ts",
@@ -22,10 +22,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@inngest/otel": "^0.2.2",
     "@mariozechner/pi-tui": "^0.73.1",
     "execa": "^10.0.1",
     "express": "^5.2.1",
     "inngest": "^4.21.1",
+    "openai": "^6.49.0",
     "simple-git": "^4.0.2",
     "zod": "^4.6.5"
   },
