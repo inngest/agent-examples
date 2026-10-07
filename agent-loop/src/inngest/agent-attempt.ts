@@ -30,6 +30,12 @@ type Msg =
 
 // Cap on turns that end without a tool call, per attempt (see the turn loop).
 const MAX_IDLE_TURNS = 4;
+// finish_attempt before any write/edit is refused this many times per attempt:
+// small models otherwise "finish" with a plan ("need to make focused edits")
+// and the attempt is a no-change stall. After the cap, a finish is accepted.
+const MAX_EMPTY_FINISH_REFUSALS = 2;
+const EMPTY_FINISH_REFUSAL =
+  "error: you haven't changed any file in this attempt, so there is nothing to finish. Make the change now with edit_file or write_file, then call finish_attempt.";
 
 const oneLine = (s: string, max: number) => s.replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -89,6 +95,9 @@ export const agentAttempt = inngest.createFunction(
     // `t` numbers every model call and keeps step ids unique.
     let idleTurns = 0;
     let warnedLastTurn = false;
+    // Both derived from memoized tool results only, so replay is deterministic.
+    let edited = false;
+    let emptyFinishRefusals = 0;
     for (let t = 1; turns < maxTurns && idleTurns < MAX_IDLE_TURNS && !summary; t++) {
       // Derived only from loop variables, so replay rebuilds identical messages.
       if (turns === maxTurns - 1 && !warnedLastTurn) {
@@ -154,6 +163,12 @@ export const agentAttempt = inngest.createFunction(
           ),
         );
         for (const [p, c] of Object.entries(out.changed ?? {})) files.set(p, c);
+        if (/^(wrote|edited) /.test(out.result)) edited = true;
+        if (out.finished !== undefined && !edited && emptyFinishRefusals < MAX_EMPTY_FINISH_REFUSALS) {
+          emptyFinishRefusals++;
+          messages.push({ role: "tool", tool_call_id: call.id, content: EMPTY_FINISH_REFUSAL });
+          continue;
+        }
         messages.push({ role: "tool", tool_call_id: call.id, content: out.result });
         if (out.finished !== undefined) {
           summary = out.finished;
