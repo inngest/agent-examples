@@ -227,3 +227,38 @@
 - **It didn't help.** Attempts 7–10 changed nothing and got shorter (7, 7, 4, 2 turns). Attempt 7 called `finish_attempt` with *"need to make focused edits to semver.ts to fix the port"*, a plan instead of an edit. Attempt 11 made a change that scored 1.000 (reverted). Parked again at `review-11`. The parallel `session-probe-1` showed the same thing (attempt 2: 3 turns, 13s, no change).
 - **Harness fix:** `finish_attempt` before any successful `write_file`/`edit_file` in the attempt is refused (up to 2× per attempt) with "you haven't changed any file in this attempt…". It's derived from memoized tool results, so replay is deterministic. Post beat: the human note was correct, and the model still had to be made to act on it.
 - `goal:send` now tags `goal/started` with Inngest Sessions (`meta.sessions.goal_id`), propagated to invoked attempts. `session-probe-1` is the first tagged goal; the REST events API doesn't return `meta`, so check AI > Sessions in the dashboard.
+
+### canon-3 after the finish fix, and a truncated tool call (16:32–16:52 UTC)
+
+- With the finish refusal deployed (294e805) and the note resent at 16:32:32: 12 → 0.491, 13 → 0.366, 14 → 0.350, 15 unchanged, 16 worse (reverted), **17 → 0.338**, 18 failed, 19 unchanged, **20 → 0.337 (5,987)**, 21 worse (reverted). That's 0 of 10 improving before the fix (with or without the note) against 5 of 10 after it.
+- **Attempt 18 failed outright** (`turns=0 cost=0`): `AIGatewayError` 400, NonRetriable. The model's previous turn was cut off inside a tool call's JSON arguments; the tool answered "not valid JSON", but the broken call stayed in the history, and CoreWeave rejected the next request (`messages[13].tool_calls[1].function.arguments must be a valid JSON object string: EOF while parsing`), then Io Net. The loop counted it as a stall and attempt 19 started normally: the harness absorbed it.
+- Fix (not yet deployed; canon-3 is in flight): the assistant message in the history replaces invalid tool-call arguments with `{}`. The tool's error result still tells the model what went wrong.
+
+### A live view: `pnpm goal:watch` (pi-tui + Inngest Realtime)
+
+- Wanted for the post and for anyone running the example: watch the loop loop, and answer the review without curl. Chose pi-tui (differential rendering, built-in editor for the note) over Ink.
+- Data: REST events for history (realtime has none), then a Realtime channel per goal. goal-loop publishes `goal.started`, `attempt.scored` (with the keep/revert verdict, best score and stall count, which the `goal/attempt.scored` event doesn't have because it's sent before the decision), `review.waiting`/`review.resumed`, and `goal.finished`. agent-attempt publishes `attempt.started`, one `turn` per model call (tool-call count, finish reason, a text excerpt) and one `tool` per call.
+- Design choice: **every publish is a memoized step that swallows errors**. A watcher is a viewer; a realtime hiccup must never retry or fail a goal, and a replay must not re-send. That costs 2–3 steps per iteration (budget 7 → 9, cap 141 → 110 attempts). Tool messages ride inside the tool step that already runs once.
+- First look, against canon-3's real history (live connection up, no worker publishes yet): the flat 0.49 stretch through two reviews, attempt 11's broken edit as a red dot on the floor, then the climb after the finish fix. With a fixed 0–100% axis the climb was invisible (everything sat at 50–66%), so the axis now spans the kept attempts' range.
+
+### Runaway whitespace turns, and maxTokensPerTurn 8000 → 4000 (tui-probe-1, 17:05 UTC)
+
+- The TUI made a pattern visible: `no tool call (cut off at the token limit) 8000 tok`. In the dev-server trace, these turns are nemotron opening a `[` in plain content and then emitting whitespace (`\n \n \t\t\t…`) until `max_tokens`. Its reasoning just before shows it meant to act ("Now edit Prerelease.", "Let's edit one at a time."). It looks like a JSON tool call that degenerated into content.
+- Across 102 tool-call turns on the dev server (2026-10-06/07), completion tokens: p50 237, p90 1,730, p99 2,546, max 3,650. 18 turns ran away to 8,000. **Raising the cap would only buy more whitespace.** The default is now 4,000 (it covers every real call seen), which halves the cost and the wait of each runaway; the idle cap still bounds how many there can be. Per goal: `--max-tokens N`.
+- `goal:watch` can now start the goal itself (`s` or `--start`, same flags as `goal:send`; resets the local workspace first).
+
+### It was the provider, not (only) the model (17:45 UTC)
+
+- Runaway turns by provider (nemotron-3.5-lightning, all dev-server turns 2026-10-06/07): **CoreWeave 33 runaways / 135 turns (24%)**; Phala 0 / 35; Io Net 0 / 1. The runaways began when `sort: "throughput"` started routing everything to CoreWeave.
+- The other symptom you see in `goal:watch`, `edit_file error: old_string must be a non-empty string`, is the same thing: all 11 recent cases arrived as `{"new_string":"","old_string":"","path":"semver.ts"}`, an edit the model meant to make with its strings dropped.
+- **Controlled A/B:** rebuilt the exact request of a runaway turn (tui-probe-1 attempt run 01M4BQ6GNNR0PAF4ZBCN5ZJP71, turn 3) from the memoized step outputs and replayed it 5× per provider with `order: [p], allow_fallbacks: false`. CoreWeave: 1 runaway, 3 × `list_files` again (2,000–2,700 tokens each), 1 × `read_file`. **Phala: 5/5 `edit_file`** (1.2–3.1k tokens, ~200 tok/s). Same model slug, same request, a different agent.
+- Fix: `MODEL_PROVIDERS` (comma-separated → OpenRouter `provider.order`, fallbacks still allowed; `require_parameters` kept). Set to `Phala` in `.env` and `render.yaml`. Unset keeps `sort: "throughput"`.
+- Post beat: "the model" in an open-weights harness is really model × provider (quantization, chat template, tool-call parser). The harness absorbed CoreWeave's broken turns (the idle cap, empty-edit rejection, the stall counter), but routing was costing about a quarter of the turns.
+- Considered and deferred: dedicated inference (e.g. Baseten). It would pin the serving stack (quantization, template, tool parser) and make numbers reproducible across runs, at the cost of paying for an idle GPU and setup time. Pinning a good OpenRouter provider is free, so try a full run on Phala first; switch if it proves flaky or unavailable.
+
+### README, review context, and a history bug (18:00 UTC)
+
+- `README.md` written for agent-loop (the loop, the harness table, quick start, a detailed TUI section, Cloud, config, model × provider), and listed in the root README.
+- The review pane now shows what the reviewer needs to write a note: the best attempt's check report (failures by function, shortest failing examples) and each stalled attempt's `finish_attempt` summary. Both are also on `goal/attempt.scored` (optional `report`, `summary`), so a TUI opened mid-review has them.
+- `goal:watch --dev | --cloud` overrides `INNGEST_DEV` per session (set before the Inngest client is created). Starting resets the local workspace only for a dev-server target with the local backend.
+- Bug found by watching canon-3 from Cloud two hours after it started: the REST events API only returns recent events (about the last hour) unless `received_after` is given, so `goal/started` went missing and the history showed 3 rows with best 1.000. Now every query passes a 7-day lookback; canon-3 loads all 25 attempts.

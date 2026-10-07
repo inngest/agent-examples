@@ -1,4 +1,4 @@
-# Handoff: goal-loop status (2026-10-07, updated 15:05 UTC)
+# Handoff: goal-loop status (2026-10-07, updated 17:00 UTC)
 
 How to pick this work up on another machine. `BUILD_LOG.md` is the detailed history and the source for the blog post. This file covers where things stand and what to do next.
 
@@ -19,7 +19,7 @@ A `/goal` loop on Inngest. A small model ports `golang.org/x/mod/semver` to Type
 ## Current defaults
 
 - Model: set by the `MODEL` env var on the worker, or per goal with `goal/started` `data.model`. The Render worker (`agent-loop/render.yaml`) uses `nvidia/nemotron-3.5-lightning` (non-thinking, fast, every turn a tool call under strict routing; reached 0.377–0.445 in 4–6 attempts in the local probes). The default is `qwen/qwen3-coder-30b-a3b-instruct` via OpenRouter. It's non-thinking, about $0.002 and a minute per attempt, and plateaus around 0.33 without help.
-- `maxAttempts` 60, `maxStalls` 5, `maxTurnsPerAttempt` 8, `maxTokensPerTurn` 8000.
+- `maxAttempts` 60, `maxStalls` 5, `maxTurnsPerAttempt` 8, `maxTokensPerTurn` 4000 (was 8000; real tool-call turns peak around 3.6k, and runaway whitespace turns ran to the cap).
 - `tool_choice: "required"` and OpenRouter `provider.require_parameters`. Turns without a tool call don't count toward `maxTurnsPerAttempt`. They're tracked as `idleTurns` and capped at 4 per attempt. `edit_file` rejects edits that change nothing.
 - Reasoning controls (`reasoningEffort` / `reasoningMaxTokens`) are **opt-in per goal**. Only set them for thinking models such as `qwen/qwen3.8-27b`. Sending `reasoning` to a non-thinking model gets an OpenRouter 404 under strict routing.
 
@@ -46,7 +46,15 @@ pnpm goal:send -- --goal my-goal [--model ...] [--max-attempts N] [--max-stalls 
 curl -s -X POST localhost:8288/e/test -H 'content-type: application/json' \
   -d '{"name":"goal/review.submitted","data":{"goalId":"my-goal","action":"continue","note":"..."}}'
 python3 scripts/trace-dump.py <since-ISO-time>   # per-attempt scores, costs, turns
+pnpm goal:watch -- --goal my-goal   # live TUI; also answers the review (see below)
 ```
+
+### Live view: `pnpm goal:watch`
+
+A pi-tui terminal UI (`scripts/watch-goal.ts`): a pass-rate chart with one column per attempt (green kept, yellow reverted, dim unchanged, red failed), the last attempts with Δ failing cases, and the attempt in flight (each turn and tool call). With no run of the goal in flight, `s` (or `--start`) starts one with the `goal:send` flags given (`--model`, `--max-attempts`, `--max-stalls`, `--max-tokens`); on the local backend it resets the shared workspace first, so don't press it while another local goal is running. When the loop parks for review, an editor opens, pre-filled with the last note (a review *replaces* the note, so it has to be resent): Enter = continue, Ctrl+S = stop. `q` quits. Quitting never affects the run.
+- History comes from the REST events API (`src/lib/goal-history.ts`, bounded by the latest `goal/started` for the id). Live data comes from Inngest Realtime, channel `goal:<goalId>` (`src/inngest/channel.ts`), topics `loop` and `attempt`.
+- Publishes (`src/lib/live.ts`) are their own memoized steps, swallowing errors, so a replay never re-sends and a realtime outage can't fail the goal. Tool-call messages publish from inside the tool step instead. goal-loop's step budget went from 7 to 9 per iteration (`MAX_ATTEMPTS_CAP` 141 → 110).
+- Target follows `INNGEST_DEV` in `.env`; `--dev` / `--cloud` override it per session. The TUI only talks to Inngest (REST events, Realtime, event send), never to the worker. Full docs: `README.md`.
 
 Gotchas:
 - Start long-lived processes in your own terminal or with `nohup`. Never use a tool's background shell with a timeout: one killed the dev server mid-run, and without `--persist` all history was lost.
@@ -77,17 +85,20 @@ Gotchas:
 | 6 | stall → review → resume | done (local; coder-probe-1 parked on `review-9` by itself, the note reached attempt 10's brief) |
 | 7 | check change mid-run → rebaseline | done (local; rebase-probe-1: dropped Sort cases after attempt 2, `rebaseline-3` re-scored the incumbent under the new checkVersion) |
 | 8 | holdout + numbers | done (local; holdout ≈ train, no overfitting) |
-| v2 | sandbox backend + deploy | built and typechecked; **sandbox path, Connect worker and Docker image are all untested live** |
+| v2 | sandbox backend + deploy | done (Render + Connect + Sandboxes; render-smoke-1/2, session-probe-1, canon-3) |
 
 ## Known issues / ideas
 
 - Some providers don't enforce `tool_choice: "required"`. The share of turns without a tool call ranged from 0% to about 50% between runs. Those turns are now tracked as `idleTurns` and don't use up the turn budget. It's a post beat, not a bug.
 - The model rarely calls `finish_attempt`, so most attempts use all 8 turns. Harmless, because the commit step saves the work either way.
+- When nemotron does call `finish_attempt`, it's often before it has edited anything (a plan, not a change). Since 294e805 that finish is refused up to 2× per attempt (`EMPTY_FINISH_REFUSAL`). In canon-3 it took the run from 0 of 10 attempts improving to 4 of 6.
+- A tool call cut off mid-arguments (`finish_reason: length`) used to be echoed back into the history, and the providers then rejected the next turn with 400 `function.arguments must be a valid JSON object` (non-retriable) → the attempt failed (canon-3 attempt 18). The history now gets `{}` for invalid arguments; the tool still answers "not valid JSON".
+- Sessions: `goal:send` tags `meta.sessions.goal_id`, which propagates to the invoked attempts (dashboard: AI > Sessions). The REST API doesn't return `meta`.
 - The sandbox grader uploads every workspace file under `src/` (8bac4a5). Relative imports must use `.ts` specifiers; the in-memory typecheck rejects `./x.js`. Verified in a real sandbox.
 - Durability limit: a worker outage longer than the retry window of the function that must run next fails the run (agent-attempt `retries: 2` ≈ 1 min; goal-loop default ≈ 4.5 min). State survives, but the run doesn't. Kept deliberately as a post finding.
 - `write_file`/`edit_file` reject results that would leave a file empty (3081cb3); nemotron-3.5-lightning wrote empty files twice in the probes.
 - checkVersion changed once in the sandbox refactor (`052e0be4bb9e` → `9ef47c667fd7`); the cases didn't change.
-- Spec v2 follow-ups not started: chaining rounds across runs past the step limit, a review UI, the small-vs-large model comparison post.
+- Spec v2 follow-ups not started: chaining rounds across runs past the step limit, the small-vs-large model comparison post. (Review UI: `goal:watch`.)
 
 ## Working conventions (from the original session)
 
