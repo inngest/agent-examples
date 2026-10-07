@@ -30,7 +30,9 @@ import type { Files } from "../src/lib/backend.js";
 export const SANDBOX_TIMEOUT_MS = 60_000;
 const WORKDIR = "/workspace";
 const VCPU = 1;
-const MEMORY_MB = 512;
+// 512 and 256 always got 503 compute_unavailable (2026-10-07); 1024 starts in
+// ~1.5s. The runner's own heap is still capped at 256MB via NODE_OPTIONS.
+const MEMORY_MB = 1024;
 // Wait-until-running cap for create (client hard max is 300s).
 const START_TIMEOUT = "120s";
 
@@ -56,7 +58,9 @@ async function upload(sb: Sb, file: string, data: string): Promise<void> {
 }
 
 export async function runCheckSandbox(opts: { files: Files; ref: string; set: CaseSet }): Promise<CheckResult> {
-  if (process.env.INNGEST_DEV) {
+  // Same reading as the SDK: INNGEST_DEV=0 / false means Cloud.
+  const dev = (process.env.INNGEST_DEV ?? "").trim().toLowerCase();
+  if (dev !== "" && dev !== "0" && dev !== "false") {
     throw new NonRetriableError(
       "sandbox grader needs Inngest Cloud (sandboxes don't exist on the dev server): unset INNGEST_DEV and set INNGEST_SIGNING_KEY",
     );

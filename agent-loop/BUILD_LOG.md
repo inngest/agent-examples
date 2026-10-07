@@ -180,3 +180,13 @@
 - Attempt 5 wrote an empty `semver.ts` again (score 1.0) → reverted. Attempt 6 → 6,424 / 17,030 (**0.377**, best). Holdout under the new check: 1,582 / 4,270 (0.370). COMPLETED 15:02:49.
 - **Idle-turn cap exercised for the first time:** attempts 2 and 3 ended "(stopped after 4 turns without a tool call)". They used 35.5k and 32.7k output tokens on chat text, mostly `finish_reason: length` turns.
 - Afterwards `check/score-core.ts` was restored (`git checkout`), checkVersion is back to `9ef47c667fd7`, `check:selftest` is green, and the worker running the modified check was stopped.
+
+### Tool fix + first real sandbox grader run (2026-10-07, 15:20 UTC)
+
+- `write_file` / `edit_file` now reject a result that would leave the file empty (3081cb3). An empty module typechecks, so nemotron's empty writes had looked like clean successes.
+- Render: `goal-loop-worker` moved to its own Blueprint, `agent-loop/render.yaml` (dfd0b91). The root `render.yaml` is the live token-streaming-agent Blueprint on `mitch/render-deploy`; a second Blueprint from it would have duplicated those services. The Render worker uses `MODEL=nvidia/nemotron-3.5-lightning`.
+- **Sandbox access confirmed** on the Inngest Cloud account: the 403 from the earlier MCP probe is gone.
+- `INNGEST_DEV=0` in `.env` tripped the grader's "dev server" guard, which treated any non-empty value as dev. It now reads the variable like the SDK does ("0"/"false" = Cloud).
+- **Every create returned `503 compute_unavailable` (`retryable: true`) at 512MB**, three tries over 40s. Probing sizes: 1 vCPU/256MB and 512MB → 503 every time; **1 vCPU/1024MB → up in 1.5s**, 2/2048 → 1.1s. It looks like a minimum memory size reported as a capacity error. `MEMORY_MB` is now 1024 (the runner heap stays capped at 256MB). The sandbox image runs node v26.5.0.
+- **`pnpm check:sandbox-smoke`: PASS.** Stub 17,752/17,752 (score 1, 5.7s) and lookup 0/17,752 (score 0, 5.6s), checkVersion `9ef47c667fd7` (same as local). This was the first real run of the sandbox grader.
+- Multi-file in a real sandbox: `semver.ts` = `export * from "./lib/impl.ts"` with the lookup table in `lib/impl.ts` → score 0. Uploads under `src/`, the subdirectory and `.ts` specifiers all work under node type stripping.

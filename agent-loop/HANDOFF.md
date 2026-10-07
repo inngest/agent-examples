@@ -57,8 +57,8 @@ Gotchas:
 
 ## Deploy (Inngest Cloud + Render), not yet done
 
-1. **Confirm the Inngest account has Sandbox access.** A probe via the Inngest Cloud MCP returned `403 access_denied: Sandbox access is not enabled for this account`. It may have been a different account, so verify.
-2. Grader smoke test: in `.env`, remove `INNGEST_DEV`, set `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` and `WORKSPACE_BACKEND=sandbox`, then run `pnpm check:sandbox-smoke`. It should report stub score 1 and lookup score 0. **This is the first real run of the sandbox grader.**
+1. ~~Confirm Sandbox access~~: confirmed 2026-10-07.
+2. ~~Grader smoke test~~: `pnpm check:sandbox-smoke` passes (stub 1, lookup 0) and so does a multi-file solution. Sandboxes need ≥1024MB (512 returns 503 `compute_unavailable`). `INNGEST_DEV=0` counts as Cloud.
 3. Optionally run the worker locally against Cloud with `pnpm start:worker` (Connect, no public URL needed).
 4. In Render (Inngest team workspace), create a **new** Blueprint from this repo, branch `mitch/goal-loop`, **Blueprint Path `agent-loop/render.yaml`**. It defines only `goal-loop-worker` and needs the secrets `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` and `MODEL_API_KEY`. Don't use the root `render.yaml`: it belongs to the live token-streaming-agent Blueprint on `mitch/render-deploy`, and a second Blueprint from it would duplicate those services. **The Docker image has never been built** (Docker wasn't installed on the dev machine), so Render's build is the first test.
 5. Canon run: `pnpm goal:send -- --goal canon-3` with Cloud keys in `.env`. Screenshots come from the Cloud dashboard.
@@ -81,9 +81,9 @@ Gotchas:
 
 - Some providers don't enforce `tool_choice: "required"`. The share of turns without a tool call ranged from 0% to about 50% between runs. Those turns are now tracked as `idleTurns` and don't use up the turn budget. It's a post beat, not a bug.
 - The model rarely calls `finish_attempt`, so most attempts use all 8 turns. Harmless, because the commit step saves the work either way.
-- The sandbox grader uploads every workspace file under `src/` (8bac4a5). Relative imports must use `.ts` specifiers; the in-memory typecheck rejects `./x.js`. Not yet run in a real sandbox.
+- The sandbox grader uploads every workspace file under `src/` (8bac4a5). Relative imports must use `.ts` specifiers; the in-memory typecheck rejects `./x.js`. Verified in a real sandbox.
 - Durability limit: a worker outage longer than the retry window of the function that must run next fails the run (agent-attempt `retries: 2` ≈ 1 min; goal-loop default ≈ 4.5 min). State survives, but the run doesn't. Kept deliberately as a post finding.
-- `write_file` with empty content is accepted (an empty module typechecks). nemotron-3.5-lightning did this twice; check + revert absorbed it. Rejecting it in the tool would be a one-line harness fix.
+- `write_file`/`edit_file` reject results that would leave a file empty (3081cb3); nemotron-3.5-lightning wrote empty files twice in the probes.
 - checkVersion changed once in the sandbox refactor (`052e0be4bb9e` → `9ef47c667fd7`); the cases didn't change.
 - Spec v2 follow-ups not started: chaining rounds across runs past the step limit, a review UI, the small-vs-large model comparison post.
 
