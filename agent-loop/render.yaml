@@ -1,0 +1,36 @@
+# Render blueprint for the agent-loop goal worker, kept separate from the
+# root render.yaml (token-streaming-agent) so the two deploy independently.
+#
+# Deploy: Render dashboard → New → Blueprint → this repo, branch
+# mitch/goal-loop, Blueprint Path = agent-loop/render.yaml. You'll be prompted
+# for each secret (sync: false): INNGEST_SIGNING_KEY / INNGEST_EVENT_KEY from
+# app.inngest.com (account needs Sandbox access), MODEL_API_KEY (OpenRouter).
+services:
+  # Goal-loop Connect worker (agent-loop): runs goal-loop + agent-attempt on
+  # Node/tsx with the sandbox backend, so there is no local disk state. The
+  # agent's files live in step state, typecheck runs on this worker, and each
+  # grader run executes in a fresh Inngest Sandbox (needs sandbox access on the
+  # Inngest account). Start a run with `pnpm goal:send -- --goal <id>`.
+  - type: worker
+    name: goal-loop-worker
+    runtime: docker
+    rootDir: agent-loop
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    envVars:
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      # Sends goal/attempt.scored + goal/finished events and score writes.
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      # API key for the OpenAI-compatible endpoint below (OpenRouter).
+      - key: MODEL_API_KEY
+        sync: false
+      - key: MODEL_BASE_URL
+        value: https://openrouter.ai/api/v1/
+      # Default agent model; a goal/started event can still set data.model.
+      - key: MODEL
+        value: qwen/qwen3-coder-30b-a3b-instruct
+      # local = git workspace on disk (dev); sandbox = step state + Inngest Sandboxes.
+      - key: WORKSPACE_BACKEND
+        value: sandbox

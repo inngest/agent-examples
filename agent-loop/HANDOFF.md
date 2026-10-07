@@ -60,7 +60,7 @@ Gotchas:
 1. **Confirm the Inngest account has Sandbox access.** A probe via the Inngest Cloud MCP returned `403 access_denied: Sandbox access is not enabled for this account`. It may have been a different account, so verify.
 2. Grader smoke test: in `.env`, remove `INNGEST_DEV`, set `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` and `WORKSPACE_BACKEND=sandbox`, then run `pnpm check:sandbox-smoke`. It should report stub score 1 and lookup score 0. **This is the first real run of the sandbox grader.**
 3. Optionally run the worker locally against Cloud with `pnpm start:worker` (Connect, no public URL needed).
-4. In Render, create a Blueprint from this repo/branch. The `goal-loop-worker` service in the root `render.yaml` needs the secrets `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` and `MODEL_API_KEY`. **The Docker image has never been built** (Docker wasn't installed on the dev machine), so Render's build is the first test.
+4. In Render (Inngest team workspace), create a **new** Blueprint from this repo, branch `mitch/goal-loop`, **Blueprint Path `agent-loop/render.yaml`**. It defines only `goal-loop-worker` and needs the secrets `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` and `MODEL_API_KEY`. Don't use the root `render.yaml`: it belongs to the live token-streaming-agent Blueprint on `mitch/render-deploy`, and a second Blueprint from it would duplicate those services. **The Docker image has never been built** (Docker wasn't installed on the dev machine), so Render's build is the first test.
 5. Canon run: `pnpm goal:send -- --goal canon-3` with Cloud keys in `.env`. Screenshots come from the Cloud dashboard.
 
 ## Milestone status (spec §10)
