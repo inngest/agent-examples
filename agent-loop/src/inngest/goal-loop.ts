@@ -7,7 +7,7 @@ import type { CaseSet, CheckResult } from "../../check/types.js";
 import { backend, filesRef, templateFiles, type Files } from "../lib/backend.js";
 import { headSha, resetHard } from "../lib/git.js";
 import { recordScore } from "../lib/score.js";
-import { pickFocus, type JournalEntry, type Regressions } from "../lib/prompt.js";
+import { pickFocus, unimplemented, type JournalEntry, type Regressions } from "../lib/prompt.js";
 import { liveLoop } from "../lib/live.js";
 import { excerpt, type AttemptOutcome } from "./channel.js";
 
@@ -122,16 +122,16 @@ export const goalLoop = inngest.createFunction(
     // Attempt-to-attempt context, rebuilt on replay from memoized results only.
     let journal: JournalEntry[] = [];
     let regressions: Regressions | undefined;
-    // No focus until an attempt has been kept: from the stub, the first port is
-    // best written whole.
-    let keptAny = false;
+    // Per function, focused attempts that weren't kept (see pickFocus).
+    const focusMisses: Record<string, number> = {};
     let attempts = 0;
     let totalCostUsd = 0;
     const totalTokens = { input: 0, output: 0 };
 
     for (let i = 1; i <= maxAttempts; i++) {
       attempts = i;
-      const focus = focusOn && keptAny ? pickFocus(best.byFn, stalls) : undefined;
+      const stubs = unimplemented(best.byFn);
+      const focus = focusOn ? pickFocus(best.byFn, focusMisses) : undefined;
 
       // An attempt that exhausts its retries (provider outage, bad model output)
       // counts as a no-change stall rather than failing the whole goal. The
@@ -162,6 +162,7 @@ export const goalLoop = inngest.createFunction(
             journal,
             regressions,
             focus,
+            stubs,
             humanNote,
             best: { failed: best.failed, total: best.total },
             model,
@@ -238,6 +239,7 @@ export const goalLoop = inngest.createFunction(
         ...journal,
         { i, outcome, failed: result.failed, summary: excerpt(attempt.summary, 160), ...(delta ? { delta } : {}) },
       ].slice(-JOURNAL_SIZE);
+      if (focus && outcome !== "kept") focusMisses[focus.fn] = (focusMisses[focus.fn] ?? 0) + 1;
       if (outcome === "kept") regressions = undefined;
       else if (outcome === "reverted" && result.checkVersion === checkedAgainstVersion && result.regressions?.count)
         regressions = { i, count: result.regressions.count, examples: result.regressions.examples };
@@ -245,7 +247,6 @@ export const goalLoop = inngest.createFunction(
       if (outcome === "kept") {
         best = { ...result, files: attempt.files };
         stalls = 0;
-        keptAny = true;
       } else {
         stalls++;
         // Sandbox backend: every attempt is seeded from `best.files`, so state

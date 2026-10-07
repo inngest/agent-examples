@@ -291,3 +291,20 @@
 - **One function per attempt:** goal-loop picks a focus from the best's `byFn`: the most-failing function, moving down the list by one per stall (`failing[stalls % n]`), so it needs no new state and replays from the same values. The brief says to fix that function's failures only (other code only if they come from it, e.g. a shared parser) and the example window shows that function's examples (the pool's round-robin holds several of each; topped up with others if fewer than 10). No focus until something has been kept: from the stub, writing the whole port at once is still best. `focus: false` / `--no-focus` turns it off, for a matched pair.
 - Offline on the workspace best (4,883 failing): focus goes Max → MajorMinor → Compare as stalls go 0 → 2; brief ~9.7k chars. 6 new tool selftests (whitespace-only, near miss, nothing close, empty, ambiguous).
 - Not yet measured. Next: a matched pair, same model and provider, focus vs `--no-focus`.
+
+### First run with the unstick changes: worse, and why (canon-5 vs live-4, 19:06–19:25 UTC)
+
+- Not a clean pair. `live-4` (18:53, before b80c56d) had the old brief: no code, no hints, no focus. `canon-5` (19:06, after) had all three. `canon-5-nofocus` was never started on Cloud. Same model, Phala, 20 attempts, 4 stalls.
+- Result: live-4 best **0.298** (holdout 0.301, $0.072); canon-5 best **0.506** (holdout 0.501, $0.068). Holdout tracks train in both, so no overfitting.
+- The gap opens at attempt 1, before focus is on (it waits for a kept attempt). live-4 #1 wrote the whole port (0.411). canon-5 #1 implemented only IsValid and Canonical (0.921); #2 tried the rest and broke everything (17,752/17,752, reverted). Likely cause: with the stub file in the brief, the model edits function by function instead of writing the port once.
+- Then focus turned "fix failures" into "implement one stub per attempt": #3 Compare, #4 Max, #7 Prerelease, #10 Build, #13 MajorMinor, #16 Major. canon-5 improved steadily (8 kept of 20) but started 0.5 behind.
+- Max got focus 6 times (#8, #11, #14, #17, #19, plus #4) and was reverted every time after #4. It has the most failing cases because it sits on top of Compare and parsing, and focus resets to the top of the list after every kept attempt.
+- Two attempts (#2, #20) failed every case (a broken module), the same shape as before.
+- Takeaways: (1) focus shouldn't apply while functions are still stubs (failing 100%); (2) the most-failing function isn't the best target when it's downstream; rotation needs to remember which focuses didn't work, not reset on every kept attempt; (3) the stub file in the brief needs an explicit "write the whole port" when stubs remain.
+
+### Focus, second version (19:45 UTC)
+
+- **Stubs first:** a function failing every case (`failed === total`) counts as unimplemented. While any remain there's no focus, and the brief says "Still unimplemented or failing every case: … Implement all of them in this attempt, not one at a time; writing the whole file once with write_file is fine." This applies with `--no-focus` too, since it answers the code-in-brief regression, not focus. Replaces the "no focus until something is kept" rule.
+- **Rotation remembers:** goal-loop counts, per function, focused attempts that weren't kept (`focusMisses`). The next focus is the failing function with the fewest misses, most-failing first among equals. A kept attempt adds no miss, so focus stays on a function while it keeps improving and moves on from one it can't fix; nothing resets after a kept attempt. Plain loop state, rebuilt on replay.
+- Offline: the stub gives no focus and lists all 9 functions; on the 4,883-failing best with every attempt missing, focus goes Max → MajorMinor → Compare → Canonical → Prerelease → Sort instead of back to Max.
+- Next: `canon-6` and `canon-6-nofocus`, started together on the same deploy.

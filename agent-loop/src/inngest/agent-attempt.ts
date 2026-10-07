@@ -33,6 +33,7 @@ const AttemptInput = z.object({
   regressions: z.object({ i: z.number(), count: z.number(), examples: z.array(z.string()) }).optional(),
   // The function this attempt should work on (see pickFocus); unset = whole report.
   focus: z.object({ fn: z.string(), failed: z.number(), total: z.number() }).optional(),
+  stubs: z.array(z.string()).optional(), // functions failing every case (see unimplemented)
   humanNote: z.string().optional(),
   best: z.object({ failed: z.number(), total: z.number() }),
   model: z.string(),
@@ -91,6 +92,7 @@ export const agentAttempt = inngest.createFunction(
       journal,
       regressions,
       focus,
+      stubs,
       humanNote,
       best,
       model,
@@ -142,7 +144,7 @@ export const agentAttempt = inngest.createFunction(
     // reconstructs exactly the same messages.
     const messages: Msg[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildBrief({ i, best, humanNote, report, examples, journal, regressions, focus, code }) },
+      { role: "user", content: buildBrief({ i, best, humanNote, report, examples, journal, regressions, focus, stubs, code }) },
     ];
     const tokens = { input: 0, output: 0 };
     let summary = "";

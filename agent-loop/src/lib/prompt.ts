@@ -14,16 +14,33 @@ export type JournalEntry = {
 export type Regressions = { i: number; count: number; examples: string[] };
 export type Focus = { fn: string; failed: number; total: number };
 
-// The function one attempt works on: the most-failing one, moving down the
-// list with each attempt that doesn't improve the best, so a stalled goal
-// tries a different function instead of rewriting everything again. Derived
-// from loop state only (the best's per-function counts and the stall count).
-export function pickFocus(byFn: Record<string, { total: number; failed: number }> | undefined, stalls: number): Focus | undefined {
+type ByFn = Record<string, { total: number; failed: number }>;
+
+// Functions that fail every case: still stubs, or broken outright. While any
+// remain, the attempt is told to implement them all at once (canon-5: with the
+// stub file in the brief, the model otherwise went one function per attempt
+// and started 0.5 behind a run that wrote the whole port in attempt 1).
+export function unimplemented(byFn: ByFn | undefined): string[] {
+  return Object.entries(byFn ?? {})
+    .filter(([, v]) => v.total > 0 && v.failed === v.total)
+    .map(([fn]) => fn)
+    .sort();
+}
+
+// The function one attempt works on, once nothing is a stub. `misses` counts,
+// per function, the focused attempts that weren't kept. The least-missed
+// failing function goes next, the most-failing first among equals, so focus
+// moves on from a function it can't fix instead of going back to it after
+// every kept attempt (canon-5 focused Max, which sits on top of Compare and
+// the parser and always fails the most, 5 times in a row, all reverted).
+// Derived from loop state only, so replay picks the same one.
+export function pickFocus(byFn: ByFn | undefined, misses: Record<string, number>): Focus | undefined {
+  if (unimplemented(byFn).length) return undefined;
   const failing = Object.entries(byFn ?? {})
     .filter(([, v]) => v.failed > 0)
-    .sort((a, b) => b[1].failed - a[1].failed || a[0].localeCompare(b[0]));
+    .sort((a, b) => (misses[a[0]] ?? 0) - (misses[b[0]] ?? 0) || b[1].failed - a[1].failed || a[0].localeCompare(b[0]));
   if (!failing.length) return undefined;
-  const [fn, v] = failing[stalls % failing.length]!;
+  const [fn, v] = failing[0]!;
   return { fn, failed: v.failed, total: v.total };
 }
 
@@ -92,10 +109,12 @@ export function buildBrief(opts: {
   journal?: JournalEntry[];
   regressions?: Regressions;
   focus?: Focus;
+  // Functions failing every case (see unimplemented).
+  stubs?: string[];
   // Current source files (path relative to src/ → contents).
   code?: Record<string, string>;
 }): string {
-  const { i, best, humanNote, report, examples, journal, regressions, focus, code } = opts;
+  const { i, best, humanNote, report, examples, journal, regressions, focus, stubs, code } = opts;
   const parts = [
     "You're porting golang.org/x/mod/semver to TypeScript in src/semver.ts. Match the Go behavior exactly, including returning \"\" for invalid input instead of throwing. Make one focused change per attempt, guided by the check report below. You can't see or run the check, and it won't change during your attempt. If you believe the report shows the check is wrong, call finish_attempt and explain why in the summary instead of working around it.",
     `Attempt ${i}. Best score so far: ${best.failed}/${best.total} failing.` + (humanNote ? `\nNote from reviewer: ${humanNote}` : ""),
@@ -110,6 +129,10 @@ export function buildBrief(opts: {
       `Attempt #${regressions.i} was reverted because it broke ${regressions.count} cases that the best code passes, for example:\n` +
         regressions.examples.map((l) => `- ${l}`).join("\n") +
         "\nIf you change the same code, keep these passing.",
+    );
+  if (stubs?.length)
+    parts.push(
+      `Still unimplemented or failing every case: ${stubs.join(", ")}. Implement all of them in this attempt, not one at a time; writing the whole file once with write_file is fine.`,
     );
   if (focus)
     parts.push(

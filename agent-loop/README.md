@@ -76,7 +76,8 @@ starting over. On top of that, each misbehaviour we hit has a specific answer:
 | stares at the same examples every attempt | gets a different window of 10 failing examples each attempt, rotating through a pool of 60 |
 | spends its first turns on `list_files` and `read_file` | gets the current code in its brief (up to 20,000 chars), so turn 1 can edit |
 | gets `old_string` almost right | is told which lines are closest (or that only whitespace differs) and gets them quoted exactly, to copy; an ambiguous match lists its line numbers |
-| rewrites everything and breaks as much as it fixes | gets one function to work on per attempt (the most-failing one), moving down the list with every attempt that doesn't improve; off with `--no-focus`, and not before the first kept attempt |
+| implements a stub file one function at a time | is told which functions still fail every case and to implement them all in this attempt |
+| rewrites everything and breaks as much as it fixes | once no function is a stub, gets one function to work on per attempt: the one with the fewest focused attempts that weren't kept, most-failing first among equals, so it moves on from a function it can't fix; off with `--no-focus` |
 | crashes, or the attempt is cancelled | counts as a stall; the goal never fails because of one attempt |
 
 The check itself is out of reach: attempts see only its report (failures by
