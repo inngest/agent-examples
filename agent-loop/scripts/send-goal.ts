@@ -19,7 +19,7 @@ if (!goalId) {
   console.error("usage: pnpm goal:send -- --goal <id> [--model <slug>] [--max-attempts N] [--max-stalls N]");
   process.exit(2);
 }
-const model = get("--model") ?? "qwen/qwen3.8-27b";
+const model = get("--model") ?? "qwen/qwen3-coder-30b-a3b-instruct";
 
 const res = await inngest.send(
   goalStarted.create({ goalId, model, maxAttempts: num("--max-attempts"), maxStalls: num("--max-stalls") }),

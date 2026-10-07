@@ -8,9 +8,7 @@ export const GOAL_DEFAULTS = {
   maxAttempts: 60,
   maxStalls: 5,
   maxTurnsPerAttempt: 8,
-  reasoningEffort: "low",
   maxTokensPerTurn: 8000,
-  reasoningMaxTokens: 2048,
 } as const;
 
 export const goalStarted = eventType("goal/started", {
@@ -20,9 +18,9 @@ export const goalStarted = eventType("goal/started", {
     maxAttempts: z.number().int().positive().optional(), // default 60
     maxStalls: z.number().int().positive().optional(), // default 5
     maxTurnsPerAttempt: z.number().int().positive().optional(), // default 8
-    reasoningEffort: z.enum(["low", "medium", "high"]).optional(), // default "low"
+    reasoningEffort: z.enum(["low", "medium", "high"]).optional(), // opt-in, thinking models only
     maxTokensPerTurn: z.number().int().positive().optional(), // default 8000
-    reasoningMaxTokens: z.number().int().positive().optional(), // default 2048; takes precedence over reasoningEffort
+    reasoningMaxTokens: z.number().int().positive().optional(), // opt-in, thinking models only; takes precedence over reasoningEffort
   }),
 });
 

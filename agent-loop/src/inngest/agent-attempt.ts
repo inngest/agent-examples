@@ -21,7 +21,7 @@ const AttemptInput = z.object({
   best: z.object({ failed: z.number(), total: z.number() }),
   model: z.string(),
   maxTurns: z.number(),
-  reasoningEffort: z.enum(["low", "medium", "high"]),
+  reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
   maxTokensPerTurn: z.number(),
   reasoningMaxTokens: z.number().optional(),
 });
@@ -44,10 +44,13 @@ export const agentAttempt = inngest.createFunction(
     // exclusive. Prefer the token budget (effort is not reliably honored), and
     // keep it under max_tokens (clamp to half) so reasoning can't eat the whole
     // output budget and leave no room for the tool call.
+    // Both are opt-in; with neither set, no `reasoning` field is sent at all.
     const reasoning =
       reasoningMaxTokens !== undefined
         ? { max_tokens: Math.min(reasoningMaxTokens, Math.floor(maxTokensPerTurn / 2)) }
-        : { effort: reasoningEffort };
+        : reasoningEffort !== undefined
+          ? { effort: reasoningEffort }
+          : undefined;
 
     // Must be first: every attempt starts from the best commit with a clean tree.
     // Sandbox backend: no git. The workspace is a map held in step state: it is
@@ -94,7 +97,13 @@ export const agentAttempt = inngest.createFunction(
         body: {
           messages,
           tools: TOOLS,
-          reasoning,
+          // Every turn must act through a tool; finish_attempt is the only way out.
+          // Small models otherwise drift into writing code as chat text.
+          tool_choice: "required",
+          // OpenRouter otherwise may route to a provider that silently ignores
+          // tool_choice; only route to providers that honour every parameter.
+          ...(baseUrl.includes("openrouter.ai") ? { provider: { require_parameters: true } } : {}),
+          ...(reasoning ? { reasoning } : {}),
           max_tokens: maxTokensPerTurn,
         } as never,
       });

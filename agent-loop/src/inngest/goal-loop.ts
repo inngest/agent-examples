@@ -38,12 +38,11 @@ export const goalLoop = inngest.createFunction(
     const maxAttempts = Math.min(event.data.maxAttempts ?? GOAL_DEFAULTS.maxAttempts, MAX_ATTEMPTS_CAP);
     const maxStalls = event.data.maxStalls ?? GOAL_DEFAULTS.maxStalls;
     const maxTurns = event.data.maxTurnsPerAttempt ?? GOAL_DEFAULTS.maxTurnsPerAttempt;
-    const reasoningEffort = event.data.reasoningEffort ?? GOAL_DEFAULTS.reasoningEffort;
+    // Reasoning controls are opt-in: sending `reasoning` to a non-thinking model
+    // makes OpenRouter (with require_parameters) find no provider at all.
+    const reasoningEffort = event.data.reasoningEffort;
     const maxTokensPerTurn = event.data.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn;
-    // An explicit reasoningEffort with no budget means "use effort"; otherwise
-    // default to the token budget, which the provider honours more reliably.
-    const reasoningMaxTokens =
-      event.data.reasoningMaxTokens ?? (event.data.reasoningEffort ? undefined : GOAL_DEFAULTS.reasoningMaxTokens);
+    const reasoningMaxTokens = event.data.reasoningMaxTokens;
 
     const sandbox = backend() === "sandbox";
 
