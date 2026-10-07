@@ -141,3 +141,42 @@
 - **idle-probe-1 (2 attempts):** 0 idle turns out of 13. This time the model used a tool on every turn, so the cap wasn't exercised. Whether `tool_choice` is honoured clearly varies by provider and by run (≈50% idle in coder-probe-2/4 an hour earlier). Attempt 1 wrote the full port in 5 turns and called `finish_attempt`: 17,752 → 7,094 (0.400). **Attempt 2 made 6 `edit_file` calls in a row that changed nothing** (the file stayed 4,042 bytes, every result `typecheck: ok`) and ran out of turns. It was a stall, reverted.
 - **`edit_file` now rejects no-op edits** (`new_string` identical to `old_string`) with an error, so the model hears that its edit did nothing instead of getting another "typecheck: ok".
 - **Model is an env var.** `goal/started.model` is optional. The worker falls back to `MODEL` env, then `DEFAULT_MODEL` (`qwen/qwen3-coder-30b-a3b-instruct`). The fallback runs inside a `resolve-model` step, so redeploying with a different `MODEL` can't change the model of an in-flight run. `pnpm goal:send` passes `--model` or `MODEL` from `.env` if set. `MODEL` was added to `.env.example` and the Render service. Verified with env-model-probe: `resolve-model` → `qwen/qwen3-coder-30b-a3b-instruct`, attempt 1 → 0.414, holdout 0.431.
+
+### Harness fixes: unchanged attempts, multi-file sandbox (2026-10-07, commit 8bac4a5)
+
+- **Unchanged attempts skip the check.** An attempt that changed nothing (or failed) no longer runs `check-i` + a no-op `revert-i`. It counts as a stall at best's score. `changed` is memoized from the invoke, so step ids stay deterministic. A check change in the meantime is picked up by the next attempt that does change something.
+- **Sandbox backend carries a file map**, not a single `semver.ts` source (`Best.files`, `bestFiles`, `filesRef` hashes every path + content). The sandbox grader uploads each file under `/workspace/src/` and runs `node runner.ts src/semver.ts`. Node type stripping resolves import specifiers literally, so the workspace tsconfig now allows `.ts` specifiers and the in-memory typecheck reports a relative `./x.js` import as an error (NodeNext tsc would accept it, then the sandbox would fail to load it). Selftests cover both. Still untested in a real sandbox.
+
+### Milestone 5, first try: kill the worker mid-attempt → the goal run died (kill-probe-1, 14:42 UTC)
+
+- Model `nvidia/nemotron-3.5-lightning` (from `.env` `MODEL`), local backend, `--max-attempts 4`. Strict routing fine: every turn was a tool call.
+- Attempt 1 (14:42:30 → 14:42:53, 23s): 17,752 → 15,758 failing (0.888), commit `72d42d1`, `finish_attempt` called.
+- **14:43:01: `kill -9` on the worker** (the node child of `tsx watch`), with attempt 2's turn 3 in flight.
+- **14:43:05: turn 3 completed anyway.** `step.ai.infer` runs the model call on the Inngest server, not the worker, so the model call outlived the worker. Its result is memoized.
+- 14:43:05 → 14:44:01: the next request to the worker (to run `tool-3-1: edit_file`) failed three times (`agent-attempt` has `retries: 2`): **attempt 2 FAILED** after 56s.
+- 14:44:01 → 14:48:41: goal-loop has to execute on the worker to handle the failed invoke (its `.catch` turns it into a stall). Those requests failed too until goal-loop's default retries ran out: **goal-loop FAILED at 14:48:41.**
+- 14:49:06: worker back (manual `pnpm dev` restart). 25s too late.
+- **Finding: the durability boundary is the function retry budget, not the step state.** All state survived (attempt 1's commit, memoized turns 1–3), but a worker outage longer than goal-loop's retry window (~4.5 min here) ends the goal. The attempt-level `.catch` → stall design only helps if the orchestrator itself is still alive to catch.
+- Gotcha: `tsx watch` does **not** respawn a child that died from SIGKILL, and `touch src/server.ts` didn't wake it either. A crashed worker needs a manual restart.
+
+### Milestone 5, second try: short outage → the attempt resumes (kill-probe-2, 14:50 UTC) ✅
+
+- Same setup and budgets (no harness change: the user chose to keep `retries` as is and log the boundary). Outage kept under the attempt's ~1 min retry window. Since `tsx watch` won't respawn a SIGKILLed child, a replacement worker was started with `nohup tsx src/server.ts` 15s after the kill.
+- Attempt 1 (14:50:33 → 14:50:48): 17,752 → 12,771 (0.719), `cd55e65`.
+- **14:50:51: `kill -9` on the worker**, attempt 2 at turn 3. Turn 3's `step.ai.infer` completed at 14:50:52 with no worker (same as kill-probe-1).
+- 14:51:06: worker back. The dev server's next retry reached it at 14:51:32 (the `Finalization` span 14:50:52 → 14:51:32 is the gap), and the run continued with `tool-3-1`. **Turns 1–3 appear once each in the trace: memoized, not re-run or re-billed.** Attempt 2 cost $0.0031 in total.
+- Workspace reflog: **one** `attempt 2:` commit (`ed69bf4`), then the normal revert to `cd55e65`. No duplicate commit from the replayed attempt.
+- Rest of the run: attempt 3 → 11,347 (0.639), attempt 4 → 7,903 (**0.445**, best), holdout 2,041 / 4,455 (0.458). `goal/finished` emitted, run COMPLETED at 14:53:25.
+- **Model behaviour (nemotron-3.5-lightning):** attempt 2 called `write_file` with **empty content** ("wrote 0 bytes to semver.ts", typecheck ok, because an empty module typechecks) and summarized "No changes made". It scored 1.0 and was reverted. Attempt 4 did the same mid-attempt, then rewrote the file. It also batches 4–6 tool calls per turn (list_files + read_file + edit_file + write_file + typecheck + finish_attempt in one turn), and two turns hit `finish_reason: length` at 8,000 tokens with no tool call. The check + revert absorbed all of it.
+- **Durability summary for the post:** step state always survives a dead worker, and the model call even finishes without one. Whether the *run* survives depends on the outage being shorter than the retry window of the function that has to run next.
+
+### Milestone 7: check change mid-run → rebaseline (rebase-probe-1, 14:54 UTC) ✅
+
+- nemotron-3.5-lightning, local backend, `--max-attempts 6`. Checkver `9ef47c667fd7` at the start.
+- Attempt 1 → 11,157 / 17,752 (0.628). Attempt 2 → 11,073 (0.624, best), `127b9c4`.
+- **14:56:39, right after `check-2`: the check changed.** `loadCases` in `check/score-core.ts` dropped every `Sort` case (722 train / 185 holdout), a scoring-relevant change. That bumps checkVersion, since score-core.ts is hashed, to `a499ffaaa17b`. The worker was swapped for one running the new code (~10s down; the user's `tsx watch` didn't respawn on the edit either, so a `nohup` worker took over).
+- **Attempt 3 → `check-3` under the new check: 10,293 / 17,030 (0.6044).** checkVersion differs from best's, so **`rebaseline-3` re-scored the incumbent `127b9c4` with the new check: 10,351 / 17,030 (0.6078)**, down from 0.6238 under the old check. Attempt 3 beat the re-scored incumbent (0.6044 < 0.6078) and became best. The keep/revert decision compared like with like: two scores from the same check.
+- Attempt 4: `changed: false` ("Empty: starting fresh", 1 turn). **No `check-4` and no `revert-4` in the trace**: the unchanged-attempt fix (8bac4a5) working live.
+- Attempt 5 wrote an empty `semver.ts` again (score 1.0) → reverted. Attempt 6 → 6,424 / 17,030 (**0.377**, best). Holdout under the new check: 1,582 / 4,270 (0.370). COMPLETED 15:02:49.
+- **Idle-turn cap exercised for the first time:** attempts 2 and 3 ended "(stopped after 4 turns without a tool call)". They used 35.5k and 32.7k output tokens on chat text, mostly `finish_reason: length` turns.
+- Afterwards `check/score-core.ts` was restored (`git checkout`), checkVersion is back to `9ef47c667fd7`, `check:selftest` is green, and the worker running the modified check was stopped.

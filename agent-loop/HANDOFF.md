@@ -1,4 +1,4 @@
-# Handoff: goal-loop status (2026-10-07)
+# Handoff: goal-loop status (2026-10-07, updated 15:05 UTC)
 
 How to pick this work up on another machine. `BUILD_LOG.md` is the detailed history and the source for the blog post. This file covers where things stand and what to do next.
 
@@ -52,6 +52,8 @@ Gotchas:
 - Start long-lived processes in your own terminal or with `nohup`. Never use a tool's background shell with a timeout: one killed the dev server mid-run, and without `--persist` all history was lost.
 - Use GraphQL (`/v0/gql`, `runTrace`) for run status, not REST `/v1/events/{id}/runs`, which reported runs `Completed` while they were still running.
 - `pnpm inngest` calls the native binary directly, because pnpm's JS shim for `inngest-cli` breaks.
+- `tsx watch` does not respawn a worker that died from SIGKILL, and neither `touch` nor a real source edit woke it. Ctrl-C and rerun `pnpm dev`.
+- `step.ai.infer` runs the model call on the Inngest server: a turn in flight finishes even while the worker is dead.
 
 ## Deploy (Inngest Cloud + Render), not yet done
 
@@ -69,9 +71,9 @@ Gotchas:
 | 2 | check + selftest | done (`check:selftest` all green) |
 | 3 | single attempt | done (local) |
 | 4 | loop happy path with reverts | done (local; canon-2, coder-probe-1) |
-| 5 | kill and resume (**record this**) | **not done**: worker restarts during hot reload worked, but no deliberate kill mid-attempt has been checked yet |
+| 5 | kill and resume | done (local; kill-probe-2: SIGKILL mid-attempt, 15s outage, attempt resumed from memoized turns, one commit). kill-probe-1 shows the limit: a ~6 min outage outlasted goal-loop's retries and the goal FAILED. Budgets left as is by choice. |
 | 6 | stall → review → resume | done (local; coder-probe-1 parked on `review-9` by itself, the note reached attempt 10's brief) |
-| 7 | check change mid-run → rebaseline | **not done** |
+| 7 | check change mid-run → rebaseline | done (local; rebase-probe-1: dropped Sort cases after attempt 2, `rebaseline-3` re-scored the incumbent under the new checkVersion) |
 | 8 | holdout + numbers | done (local; holdout ≈ train, no overfitting) |
 | v2 | sandbox backend + deploy | built and typechecked; **sandbox path, Connect worker and Docker image are all untested live** |
 
@@ -79,8 +81,9 @@ Gotchas:
 
 - Some providers don't enforce `tool_choice: "required"`. The share of turns without a tool call ranged from 0% to about 50% between runs. Those turns are now tracked as `idleTurns` and don't use up the turn budget. It's a post beat, not a bug.
 - The model rarely calls `finish_attempt`, so most attempts use all 8 turns. Harmless, because the commit step saves the work either way.
-- An attempt that changed nothing still runs a check and a no-op revert. That's a small optimisation.
-- The sandbox grader only uploads `semver.ts`, so a solution split across multiple files would fail to load there.
+- The sandbox grader uploads every workspace file under `src/` (8bac4a5). Relative imports must use `.ts` specifiers; the in-memory typecheck rejects `./x.js`. Not yet run in a real sandbox.
+- Durability limit: a worker outage longer than the retry window of the function that must run next fails the run (agent-attempt `retries: 2` ≈ 1 min; goal-loop default ≈ 4.5 min). State survives, but the run doesn't. Kept deliberately as a post finding.
+- `write_file` with empty content is accepted (an empty module typechecks). nemotron-3.5-lightning did this twice; check + revert absorbed it. Rejecting it in the tool would be a one-line harness fix.
 - checkVersion changed once in the sandbox refactor (`052e0be4bb9e` → `9ef47c667fd7`); the cases didn't change.
 - Spec v2 follow-ups not started: chaining rounds across runs past the step limit, a review UI, the small-vs-large model comparison post.
 
