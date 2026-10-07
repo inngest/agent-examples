@@ -54,13 +54,15 @@ Gotchas:
 - `pnpm inngest` calls the native binary directly, because pnpm's JS shim for `inngest-cli` breaks.
 - `tsx watch` does not respawn a worker that died from SIGKILL, and neither `touch` nor a real source edit woke it. Ctrl-C and rerun `pnpm dev`.
 - `step.ai.infer` runs the model call on the Inngest server: a turn in flight finishes even while the worker is dead.
+- On Cloud, a slow turn looks like a hang: `step.ai.infer` shows attempt 0 running with no error. Check provider throughput (OpenRouter routing) before suspecting Inngest; the harness now sends `provider.sort: "throughput"`.
+- Cancelling an `agent-attempt` run from the dashboard counts as a stall (3d8fdb7); before that fix it crashed goal-loop.
 
-## Deploy (Inngest Cloud + Render), not yet done
+## Deploy (Inngest Cloud + Render): live since 2026-10-07
 
 1. ~~Confirm Sandbox access~~: confirmed 2026-10-07.
 2. ~~Grader smoke test~~: `pnpm check:sandbox-smoke` passes (stub 1, lookup 0) and so does a multi-file solution. Sandboxes need ≥1024MB (512 returns 503 `compute_unavailable`). `INNGEST_DEV=0` counts as Cloud.
 3. Optionally run the worker locally against Cloud with `pnpm start:worker` (Connect, no public URL needed).
-4. In Render (Inngest team workspace), create a **new** Blueprint from this repo, branch `mitch/goal-loop`, **Blueprint Path `agent-loop/render.yaml`**. It defines only `goal-loop-worker` and needs the secrets `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` and `MODEL_API_KEY`. Don't use the root `render.yaml`: it belongs to the live token-streaming-agent Blueprint on `mitch/render-deploy`, and a second Blueprint from it would duplicate those services. **The Docker image has never been built** (Docker wasn't installed on the dev machine), so Render's build is the first test.
+4. ~~Render~~: `goal-loop-worker` is live (srv-db3698gm7kps73d69tk0, Inngest team workspace, auto-deploys on push to `mitch/goal-loop`); render-smoke-1 completed end to end. How it was set up: in Render (Inngest team workspace), create a **new** Blueprint from this repo, branch `mitch/goal-loop`, **Blueprint Path `agent-loop/render.yaml`**. It defines only `goal-loop-worker` and needs the secrets `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` and `MODEL_API_KEY`. Don't use the root `render.yaml`: it belongs to the live token-streaming-agent Blueprint on `mitch/render-deploy`, and a second Blueprint from it would duplicate those services.
 5. Canon run: `pnpm goal:send -- --goal canon-3` with Cloud keys in `.env`. Screenshots come from the Cloud dashboard.
 
 ## Milestone status (spec §10)
