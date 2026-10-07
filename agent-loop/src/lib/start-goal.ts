@@ -13,11 +13,14 @@ export type GoalOptions = {
   reasoningEffort?: "low" | "medium" | "high";
   reasoningMaxTokens?: number;
   focus?: boolean;
+  spec?: boolean;
+  examplesPerBrief?: number;
 };
 
 // The goal flags both scripts accept: --model, --max-attempts, --max-stalls,
 // --max-tokens, --reasoning-effort low|medium|high, --reasoning-max-tokens,
-// --no-focus (attempts see the whole report instead of one function).
+// --no-focus (attempts see the whole report instead of one function),
+// --spec (Go's documentation in the brief), --examples N (examples per brief).
 export function parseGoalArgs(argv: string[]): Partial<GoalOptions> {
   const args = argv.filter((a) => a !== "--");
   const get = (flag: string) => {
@@ -38,6 +41,8 @@ export function parseGoalArgs(argv: string[]): Partial<GoalOptions> {
     reasoningEffort: (["low", "medium", "high"] as const).find((e) => e === get("--reasoning-effort")),
     reasoningMaxTokens: num("--reasoning-max-tokens"),
     focus: args.includes("--no-focus") ? false : undefined,
+    spec: args.includes("--spec") ? true : undefined,
+    examplesPerBrief: num("--examples"),
   };
 }
 
@@ -53,6 +58,8 @@ export async function startGoal(o: GoalOptions): Promise<string[]> {
         reasoningEffort: o.reasoningEffort,
         reasoningMaxTokens: o.reasoningMaxTokens,
         focus: o.focus,
+        spec: o.spec,
+        examplesPerBrief: o.examplesPerBrief,
       },
       // Inngest Sessions: groups the goal-loop run under AI > Sessions in the
       // dashboard. Sessions propagate through step.invoke / step.sendEvent by

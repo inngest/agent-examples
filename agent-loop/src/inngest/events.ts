@@ -33,6 +33,8 @@ export const goalStarted = eventType("goal/started", {
     maxTokensPerTurn: z.number().int().positive().optional(), // default 4000
     reasoningMaxTokens: z.number().int().positive().optional(), // opt-in, thinking models only; takes precedence over reasoningEffort
     focus: z.boolean().optional(), // default true: each attempt works on one failing function
+    spec: z.boolean().optional(), // default false: include Go's documentation (data/spec.txt) in the brief
+    examplesPerBrief: z.number().int().positive().max(50).optional(), // default 10; with a focus, drawn from that function's cases
   }),
 });
 

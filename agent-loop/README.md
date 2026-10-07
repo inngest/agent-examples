@@ -61,7 +61,7 @@ goal/started
 | `src/lib/workspace.ts` | The code being edited, behind one interface: a local git repo or in-memory files (sandbox). |
 | `src/lib/openrouter.ts` | What a model can do on OpenRouter (tools, reasoning, limits, context window). |
 | `scripts/watch-goal.ts`, `scripts/watch/` | The TUI (`pnpm goal:watch`): wiring, state, rendering. |
-| `data/spec.txt`, `scripts/gen-spec.ts` | Go's documentation for the package (pinned `golang.org/x/mod` v0.21.0, the version that made the cases); `pnpm spec:gen` regenerates it. Not shown to agents yet. |
+| `data/spec.txt`, `scripts/gen-spec.ts` | Go's documentation for the package (pinned `golang.org/x/mod` v0.21.0, the version that made the cases); `pnpm spec:gen` regenerates it. In the brief with `--spec`. |
 | `workspace-template/` | The stub project each goal starts from. |
 
 ## Why it keeps going: the harness
@@ -292,7 +292,10 @@ with the files carried in step state instead of a git repo.
 | `WORKSPACE_BACKEND` | `local` | `local` (git repo in `workspace/`, check in a child process) or `sandbox` (Cloud only) |
 
 Per goal, `goal/started` also accepts `maxTurnsPerAttempt` (default 8),
-`focus` (default `true`; `--no-focus` on `goal:send` / `goal:watch`), and
+`focus` (default `true`; `--no-focus` on `goal:send` / `goal:watch`), `spec`
+(default `false`; `--spec`: Go's documentation in the brief), `examplesPerBrief`
+(default 10; `--examples N`, up to 50: with a focus, N of that function's own
+failing cases), and
 `reasoningEffort` / `reasoningMaxTokens` for thinking models (opt-in; sending
 `reasoning` to a non-thinking model makes OpenRouter find no provider).
 

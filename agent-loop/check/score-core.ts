@@ -14,6 +14,8 @@ const MAX_EXAMPLES = 10;
 // attempt the same ten cases.
 const EXAMPLE_POOL = 60;
 const MAX_REGRESSIONS = 5;
+// Per failing function, for a brief that shows many of the focus function's cases.
+const EXAMPLES_PER_FN = 50;
 
 export type Case = { id: string; fn: string; args: unknown[]; expected: unknown };
 export type Row = { id: string; ok: boolean; actual?: unknown; error?: string };
@@ -104,6 +106,15 @@ function pickExamples(cases: Case[], rows: Map<string, Row>, byFn: ScoreResult["
     if (!any) break;
   }
   return picked;
+}
+
+/** Each failing function's failing cases, shortest args first, up to EXAMPLES_PER_FN. */
+function examplesByFn(cases: Case[], rows: Map<string, Row>): Record<string, string[]> {
+  const out: Record<string, Case[]> = {};
+  for (const c of cases) if (!rows.get(c.id)?.ok) (out[c.fn] ??= []).push(c);
+  return Object.fromEntries(
+    Object.entries(out).map(([fn, list]) => [fn, list.sort(byArgsLength).slice(0, EXAMPLES_PER_FN).map((c) => exampleLine(c, rows))]),
+  );
 }
 
 /** `Fn(args) expected X, got Y` (or threw / no result), without the leading "- ". */
@@ -234,6 +245,7 @@ export function scoreFromRunnerOutput(opts: {
     report: buildReport(cases, rows, byFn, failed, note),
     failBits: encodeFailBits(failing),
     examples: pickExamples(cases, rows, byFn, EXAMPLE_POOL).map((c) => exampleLine(c, rows)),
+    examplesByFn: examplesByFn(cases, rows),
     ...(regressions ? { regressions } : {}),
   };
 }

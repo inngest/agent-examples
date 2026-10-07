@@ -33,6 +33,9 @@ const Brief: z.ZodType<AttemptBrief, AttemptBrief> = z.object({
   regressions: z.object({ i: z.number(), count: z.number(), examples: z.array(z.string()) }).optional(),
   focus: z.object({ fn: z.string(), failed: z.number(), total: z.number() }).optional(),
   stubs: z.array(z.string()).optional(),
+  examplesPerBrief: z.number().optional(),
+  focusExamples: z.array(z.string()).optional(),
+  spec: z.string().optional(),
 });
 
 const AttemptInput = z.object({

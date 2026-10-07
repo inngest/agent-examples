@@ -1,4 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { NonRetriableError } from "inngest";
+import { DATA_DIR } from "../lib/paths.js";
 import { inngest } from "./client.js";
 import { agentAttempt, isAttemptResult } from "./agent-attempt.js";
 import { DEFAULT_MODEL, GOAL_DEFAULTS, goalAttemptScored, goalFinished, goalReviewSubmitted, goalStarted } from "./events.js";
@@ -67,6 +70,9 @@ export const goalLoop = inngest.createFunction(
       return {
         model,
         profile,
+        // Opt-in: Go's documentation for the brief, read here so a replay
+        // sees the same text even if a redeploy changed the file.
+        spec: event.data.spec ? fs.readFileSync(path.join(DATA_DIR, "spec.txt"), "utf8") : undefined,
         attempt: {
           slug: model,
           maxTurns: event.data.maxTurnsPerAttempt ?? GOAL_DEFAULTS.maxTurnsPerAttempt,
@@ -136,6 +142,11 @@ export const goalLoop = inngest.createFunction(
               regressions: state.regressions,
               focus,
               stubs,
+              ...(settings.spec ? { spec: settings.spec } : {}),
+              // Only the focus function's list travels with the attempt.
+              ...(event.data.examplesPerBrief
+                ? { examplesPerBrief: event.data.examplesPerBrief, focusExamples: focus ? best.examplesByFn?.[focus.fn] : undefined }
+                : {}),
             },
             model: { ...settings.attempt, learned: state.learned },
           },

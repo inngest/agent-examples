@@ -31,7 +31,7 @@ const argv = process.argv.slice(2);
 const goalArgs = parseGoalArgs(argv);
 const goalId = goalArgs.goalId!;
 if (!goalId) {
-  console.error("usage: pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N] [--no-focus] [--inline]");
+  console.error("usage: pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N] [--no-focus] [--spec] [--examples N] [--inline]");
   process.exit(2);
 }
 
@@ -56,6 +56,8 @@ function startSummary() {
     `${g.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn} tok/turn`,
     g.reasoningMaxTokens ? `reasoning ${g.reasoningMaxTokens} tok` : g.reasoningEffort ? `reasoning ${g.reasoningEffort}` : "reasoning: worker env",
     g.focus === false ? "no focus" : "",
+    g.spec ? "spec" : "",
+    g.examplesPerBrief ? `${g.examplesPerBrief} examples` : "",
     resetsWorkspace ? "resets workspace" : "",
   ]
     .filter(Boolean)

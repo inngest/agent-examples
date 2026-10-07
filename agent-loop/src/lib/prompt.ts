@@ -55,19 +55,21 @@ export function rotateExamples(pool: string[], i: number, n = EXAMPLES_PER_BRIEF
   return Array.from({ length: n }, (_, k) => pool[(start + k) % pool.length]!);
 }
 
-// With a focus, a rotating window of the focus function's own examples (the
-// pool is round-robin across functions, so it holds several of each), topped
-// up with other functions' when it has fewer than a window's worth.
-function pickShown(pool: string[], i: number, focus?: Focus): string[] {
-  if (!focus) return rotateExamples(pool, i);
-  const own = pool.filter((l) => l.startsWith(`${focus.fn}(`));
-  if (own.length >= EXAMPLES_PER_BRIEF) return rotateExamples(own, i);
-  return [...own, ...pool.filter((l) => !l.startsWith(`${focus.fn}(`))].slice(0, EXAMPLES_PER_BRIEF);
+// With a focus, a rotating window of the focus function's own examples, topped
+// up with other functions' when it has fewer than a window's worth. Its own
+// come from `focusExamples` (up to 50 of them) when the goal asks for more
+// examples, else from the pool (round-robin across functions, so a few each).
+function pickShown(pool: string[], i: number, focus: Focus | undefined, n: number, focusExamples?: string[]): string[] {
+  if (!focus) return rotateExamples(pool, i, n);
+  const own = focusExamples?.length ? focusExamples : pool.filter((l) => l.startsWith(`${focus.fn}(`));
+  if (own.length >= n) return rotateExamples(own, i, n);
+  return [...own, ...pool.filter((l) => !l.startsWith(`${focus.fn}(`))].slice(0, n);
 }
 
-function reportWithExamples(report: string, examples: string[] | undefined, i: number, focus?: Focus): string {
-  if (!examples?.length) return report;
-  const shown = pickShown(examples, i, focus);
+function reportWithExamples(report: string, i: number, o: Pick<BriefInput, "examples" | "focus" | "examplesPerBrief" | "focusExamples">): string {
+  if (!o.examples?.length) return report;
+  const n = o.examplesPerBrief ?? EXAMPLES_PER_BRIEF;
+  const shown = pickShown(o.examples, i, o.focus, n, o.examplesPerBrief ? o.focusExamples : undefined);
   const lines = report.split("\n");
   const head = lines.filter((l) => !l.startsWith("- ") && l !== "Example failures:" && !l.startsWith("Total:"));
   const total = lines.find((l) => l.startsWith("Total:"));
@@ -112,10 +114,16 @@ export type BriefInput = {
   stubs?: string[];
   // Current source files (path relative to src/ → contents).
   code?: Record<string, string>;
+  // Opt-in per goal (--examples N): examples per brief, drawn from the focus
+  // function's own failing cases when there's a focus.
+  examplesPerBrief?: number;
+  focusExamples?: string[];
+  // Opt-in per goal (--spec): Go's documentation for the package (data/spec.txt).
+  spec?: string;
 };
 
 export function buildBrief(opts: BriefInput): string {
-  const { i, best, humanNote, report, examples, journal, regressions, focus, stubs, code } = opts;
+  const { i, best, humanNote, report, journal, regressions, focus, stubs, code, spec } = opts;
   const parts = [
     "You're porting golang.org/x/mod/semver to TypeScript in src/semver.ts. Match the Go behavior exactly, including returning \"\" for invalid input instead of throwing. Make one focused change per attempt, guided by the check report below. You can't see or run the check, and it won't change during your attempt. If you believe the report shows the check is wrong, call finish_attempt and explain why in the summary instead of working around it.",
     `Attempt ${i}. Best score so far: ${best.failed}/${best.total} failing.` + (humanNote ? `\nNote from reviewer: ${humanNote}` : ""),
@@ -139,7 +147,11 @@ export function buildBrief(opts: BriefInput): string {
     parts.push(
       `Focus for this attempt: ${focus.fn} (${focus.failed} of its ${focus.total} cases failing). Fix ${focus.fn}'s failures only. Change other code only if ${focus.fn}'s failures come from it (for example a shared parser), and keep the other functions' cases passing.`,
     );
-  parts.push(`Check report:\n${reportWithExamples(report, examples, i, focus)}`);
+  parts.push(`Check report:\n${reportWithExamples(report, i, opts)}`);
+  if (spec)
+    parts.push(
+      `Go's documentation for the package, the behavior to match (the signatures are Go's; the TypeScript ones are in src/semver.ts, where Sort returns the sorted list):\n\`\`\`\n${spec.trimEnd()}\n\`\`\``,
+    );
   if (code && Object.keys(code).length) {
     let room = MAX_CODE_CHARS;
     const blocks: string[] = [];

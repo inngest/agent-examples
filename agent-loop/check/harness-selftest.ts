@@ -6,6 +6,7 @@ import type { ChatResponse } from "../src/lib/model-call.js";
 import { ReasoningLadder, type LadderOptions } from "../src/lib/reasoning-ladder.js";
 import { afterAttempt, initialState, JOURNAL_SIZE, type LoopState } from "../src/lib/loop-state.js";
 import { assistantMessage, cutOffThinking, idleNudge } from "../src/lib/history.js";
+import { buildBrief } from "../src/lib/prompt.js";
 
 let failures = 0;
 const ok = (cond: boolean, msg: string) => {
@@ -166,5 +167,27 @@ ok(cutOffThinking(thinkingCutoff) && !cutOffThinking(textCutoff), "history: cut 
 ok(idleNudge(chat) === "Use the tools, then call finish_attempt.", "nudge: plain chat turn");
 ok(idleNudge(thinkingCutoff).startsWith("You ran out of room for this turn while thinking (3500 of 4000"), "nudge: cut off while thinking");
 ok(idleNudge(textCutoff).startsWith("Your output was cut off before you made a tool call."), "nudge: cut off mid-text");
+
+// --- brief options: --examples N and --spec
+{
+  const pool = [...Array.from({ length: 6 }, (_, k) => `Max("v${k}") expected "", got "x"`), ...Array.from({ length: 6 }, (_, k) => `Build("v${k}") expected "", got "x"`)];
+  const own = Array.from({ length: 30 }, (_, k) => `Max("w${k}") expected "", got "y"`);
+  const report = "Failures by function: Max 30/40, Build 6/10\nExample failures:\n- x\nTotal: 36 of 50 cases failed.";
+  const base = { best: { failed: 36, total: 50 }, report, examples: pool, focus: { fn: "Max", failed: 30, total: 40 } };
+  const shown = (b: string) => b.split("\n").filter((l) => l.startsWith("- ") && l.includes("expected"));
+  const def = shown(buildBrief({ i: 1, ...base, focusExamples: own }));
+  ok(def.length === 10 && def.every((l) => !l.includes("w")), "examples: without examplesPerBrief, focusExamples are ignored (default brief)");
+  const n20 = shown(buildBrief({ i: 1, ...base, examplesPerBrief: 20, focusExamples: own }));
+  ok(n20.length === 20 && n20.every((l) => l.startsWith('- Max("w')), "examples: N of the focus function's own cases");
+  const n20b = shown(buildBrief({ i: 2, ...base, examplesPerBrief: 20, focusExamples: own }));
+  ok(!eq(n20, n20b), "examples: the window rotates by attempt");
+  const few = shown(buildBrief({ i: 1, ...base, examplesPerBrief: 20, focusExamples: own.slice(0, 3) }));
+  ok(few.length === 9 && few.slice(0, 3).every((l) => l.includes("w")), "examples: fewer own than N are topped up from the pool");
+  const noFocus = shown(buildBrief({ i: 1, ...base, focus: undefined, examplesPerBrief: 4 }));
+  ok(noFocus.length === 4, "examples: without a focus, N from the pool");
+  const spec = buildBrief({ i: 1, ...base, spec: "golang.org/x/mod/semver v0.21.0\n\nfunc Max(v, w string) string\n" });
+  ok(spec.includes("Go's documentation for the package") && spec.includes("func Max(v, w string) string"), "spec: included when given");
+  ok(!buildBrief({ i: 1, ...base }).includes("Go's documentation"), "spec: absent by default");
+}
 
 process.exit(failures ? 1 : 0);
