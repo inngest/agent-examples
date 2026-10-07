@@ -23,6 +23,12 @@ if (!goalId) {
 const model = get("--model") ?? (process.env.MODEL || undefined);
 
 const res = await inngest.send(
-  goalStarted.create({ goalId, model, maxAttempts: num("--max-attempts"), maxStalls: num("--max-stalls") }),
+  goalStarted.create(
+    { goalId, model, maxAttempts: num("--max-attempts"), maxStalls: num("--max-stalls") },
+    // Inngest Sessions: groups the goal-loop run under AI > Sessions in the
+    // dashboard. Sessions propagate through step.invoke / step.sendEvent by
+    // default, so every agent-attempt run of this goal lands in the same one.
+    { meta: { sessions: { goal_id: goalId } } },
+  ),
 );
 console.log(`sent goal/started goalId=${goalId} model=${model ?? "(worker MODEL env)"} ids=${res.ids.join(",")}`);
