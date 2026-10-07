@@ -382,3 +382,9 @@
 - Default brief byte-identical (snapshot), so a goal without the flags is the control. 7 new harness tests.
 - The check changed (score-core.ts, types.ts), so **checkVersion changes**: a goal running across the deploy rebaselines its best once.
 - Next: nemotron pair started together, same deploy: control, `--spec`, `--examples 40`.
+
+### TUI: a start form instead of flags (~22:20 UTC)
+
+- The goal flags had grown to ten. `s` now opens a "Start a goal" form (`scripts/watch/start-form.ts`, a small custom component: pi-tui's SettingsList only cycles forward and doesn't mix a text field with toggles): goal id, model, attempts, stalls, tokens per turn, reasoning, focus, Go docs, examples. Flags still work and become the starting values; `--start` skips the form; with no `--goal` the form opens at launch.
+- Starting under a different id switches the view: `watch(id)` closes the subscription, resets the state, loads that goal's history and subscribes; a generation counter drops callbacks from the goal it switched away from.
+- Tested in a pty: editing, cycling, Ctrl+U, Esc then `q`; and on the dev server, starting `form-e2e-1` from the form while watching another goal (switched, sent `goal/started`, baseline scoring shown).

@@ -1,10 +1,11 @@
-// pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N]
+// pnpm goal:watch -- [--goal <id>] [--dev | --cloud] [--start] [--inline] [goal flags]
 // Live terminal view of one goal: the score per attempt, keep/revert, the
 // stall counter, the attempt in flight (turns and tool calls), and, when the
 // loop pauses for review, an editor to send the note (or stop) from here.
-// When no run of the goal is in flight, `s` (or --start) starts one with the
-// goal flags given (the same ones `goal:send` takes); on the local backend
-// the workspace is reset first, as before any new goal.
+// `s` opens the start form (scripts/watch/start-form.ts): every goal option on
+// one screen; goal flags given here become its starting values. Starting under
+// another id switches the view to that goal. Without --goal the form opens at
+// launch. --start skips the form and starts with the flags as given.
 // Target: INNGEST_DEV from .env (dev server) or Inngest Cloud; --dev / --cloud
 // override it for this session.
 // Quitting only closes the subscription; the run never depends on a watcher.
@@ -12,26 +13,28 @@
 // This file is the wiring: arguments, the TUI and its keys, history then live
 // messages, and sending start / review events. The rest is in scripts/watch/:
 // state.ts (how messages change the state), render.ts (the dashboard),
-// chart.ts, review.ts, format.ts.
-import { isDevTarget } from "./watch-target.js"; // must stay first: sets INNGEST_DEV
+// start-form.ts, chart.ts, review.ts, format.ts.
+import { isDevTarget, targetLabel } from "./watch-target.js"; // must stay first: sets INNGEST_DEV
 import { Editor, matchesKey, ProcessTerminal, TUI, type Component } from "@mariozechner/pi-tui";
 import { subscribe } from "inngest/realtime";
 import { inngest } from "../src/inngest/client.js";
-import { GOAL_DEFAULTS, goalReviewSubmitted } from "../src/inngest/events.js";
+import { goalReviewSubmitted } from "../src/inngest/events.js";
 import { goalChannel, type AttemptMessage, type LoopMessage } from "../src/inngest/channel.js";
 import { loadGoalHistory } from "../src/lib/goal-history.js";
-import { parseGoalArgs, startGoal } from "../src/lib/start-goal.js";
+import { parseGoalArgs, startGoal, type GoalOptions } from "../src/lib/start-goal.js";
 import { resetWorkspace } from "../src/lib/reset-workspace.js";
 import { backend } from "../src/lib/backend.js";
 import { c } from "./watch/format.js";
 import { applyAttempt, applyHistory, applyLoop, applyStartSent, createState } from "./watch/state.js";
 import { renderDashboard } from "./watch/render.js";
+import { StartForm } from "./watch/start-form.js";
 
 const argv = process.argv.slice(2);
 const goalArgs = parseGoalArgs(argv);
-const goalId = goalArgs.goalId!;
-if (!goalId) {
-  console.error("usage: pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N] [--no-focus] [--spec] [--examples N] [--inline]");
+// The goal being watched; the start form can switch it.
+let goalId = goalArgs.goalId ?? "";
+if (!goalId && argv.includes("--start")) {
+  console.error("usage: --start needs --goal <id> (or leave out --start and use the form)");
   process.exit(2);
 }
 
@@ -45,24 +48,6 @@ const fullScreen = !argv.includes("--inline");
 const resetsWorkspace = isDevTarget && backend() === "local";
 
 const state = createState(goalArgs);
-
-// What `s` would start, for the key hint.
-function startSummary() {
-  const g = goalArgs;
-  return [
-    `model ${g.model ?? "(worker default)"}`,
-    `${g.maxAttempts ?? GOAL_DEFAULTS.maxAttempts} attempts`,
-    `${g.maxStalls ?? GOAL_DEFAULTS.maxStalls} stalls`,
-    `${g.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn} tok/turn`,
-    g.reasoningMaxTokens ? `reasoning ${g.reasoningMaxTokens} tok` : g.reasoningEffort ? `reasoning ${g.reasoningEffort}` : "reasoning: worker env",
-    g.focus === false ? "no focus" : "",
-    g.spec ? "spec" : "",
-    g.examplesPerBrief ? `${g.examplesPerBrief} examples` : "",
-    resetsWorkspace ? "resets workspace" : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
-}
 
 // --- TUI ---
 const terminal = new ProcessTerminal();
@@ -79,7 +64,7 @@ class Dashboard implements Component {
   render(width: number): string[] {
     // Full screen, the dashboard gets the window less the review editor below it.
     const height = fullScreen ? Math.max(10, terminal.rows - (editorShown ? editor.render(width).length : 0)) : undefined;
-    return renderDashboard(state, { goalId, width, height, startSummary: startSummary() });
+    return renderDashboard(state, { goalId: goalId || "(no goal yet)", width, height, startSummary: "a goal" });
   }
 }
 tui.addChild(new Dashboard());
@@ -101,15 +86,16 @@ function hideReview() {
 }
 
 // --- sending events ---
-async function start() {
+async function start(o: GoalOptions) {
+  if (o.goalId !== goalId) await watch(o.goalId, o);
   if (state.running || state.starting) return;
   state.starting = true;
   state.flash = c.dim("starting…");
   tui.requestRender();
   try {
     if (resetsWorkspace) await resetWorkspace();
-    await startGoal({ ...goalArgs, goalId });
-    applyStartSent(state, goalArgs);
+    await startGoal(o);
+    applyStartSent(state, o);
     state.flash = c.green("sent goal/started");
   } catch (err) {
     state.flash = c.red(`start failed: ${(err as Error).message}`);
@@ -131,6 +117,32 @@ async function sendReview(action: "continue" | "stop", note?: string) {
 }
 editor.onSubmit = (text) => void sendReview("continue", text.trim() || undefined);
 
+// --- the start form ---
+let form: { close(): void } | undefined;
+function openForm() {
+  if (form || state.running || state.starting || editorShown) return;
+  const f = new StartForm(
+    { ...goalArgs, goalId },
+    {
+      target: targetLabel,
+      resetsWorkspace,
+      onStart: (o) => {
+        closeForm();
+        void start(o);
+      },
+      onCancel: () => closeForm(),
+    },
+  );
+  const overlay = tui.showOverlay(f, { width: "70%", minWidth: 60, maxHeight: "90%" });
+  form = { close: () => overlay.hide() };
+  tui.requestRender();
+}
+function closeForm() {
+  form?.close();
+  form = undefined;
+  tui.requestRender();
+}
+
 // --- keys and screen ---
 const ALT_SCREEN_ON = "\x1b[?1049h";
 const ALT_SCREEN_OFF = "\x1b[?1049l";
@@ -145,13 +157,15 @@ const quit = () => {
 };
 tui.addInputListener((data) => {
   if (matchesKey(data, "ctrl+c")) quit();
+  // The form has the keyboard: letters are typing, not commands.
+  if (form) return undefined;
   if (editorShown && matchesKey(data, "ctrl+s")) {
     void sendReview("stop");
     return { consume: true };
   }
   // While the editor is up, letters are typing, not commands.
   if (!editorShown && data === "q") quit();
-  if (!editorShown && data === "s") void start();
+  if (!editorShown && data === "s") openForm();
   return undefined;
 });
 
@@ -161,13 +175,31 @@ tui.start();
 setInterval(() => tui.requestRender(), 1000).unref();
 
 // --- history, then live ---
-try {
-  if (applyHistory(state, await loadGoalHistory(goalId))) showReview();
-  state.conn = "connecting…";
-} catch (err) {
-  state.conn = c.red(`history failed: ${(err as Error).message}`);
+// Watching a goal: its history from the REST events API, then live messages.
+// `generation` drops callbacks from a goal the view has since switched away from.
+let generation = 0;
+async function watch(id: string, preset: Partial<GoalOptions> = goalArgs) {
+  const gen = ++generation;
+  sub?.close("switch");
+  sub = undefined;
+  hideReview();
+  goalId = id;
+  Object.assign(state, createState(preset));
+  if (!id) state.conn = c.dim("no goal");
+  tui.requestRender();
+  if (!id) return;
+  try {
+    const history = await loadGoalHistory(id);
+    if (gen !== generation) return;
+    if (applyHistory(state, history)) showReview();
+    state.conn = "connecting…";
+  } catch (err) {
+    state.conn = c.red(`history failed: ${(err as Error).message}`);
+  }
+  tui.requestRender();
+  // Subscribe before any start, so the run's first messages aren't missed.
+  await connect(gen);
 }
-tui.requestRender();
 
 function onLiveMessage(topic: string | undefined, data: unknown) {
   if (topic === "loop") {
@@ -180,28 +212,34 @@ function onLiveMessage(topic: string | undefined, data: unknown) {
   tui.requestRender();
 }
 
-async function connect() {
+async function connect(gen: number) {
+  const retry = () => setTimeout(() => gen === generation && void connect(gen), 5000);
   try {
-    sub = await subscribe({
+    const s = await subscribe({
       app: inngest,
       channel: goalChannel(goalId),
       topics: ["loop", "attempt"],
       onMessage: (msg: { kind: string; topic?: string; data: unknown }) => {
-        if (msg.kind === "data") onLiveMessage(msg.topic, msg.data);
+        if (gen === generation && msg.kind === "data") onLiveMessage(msg.topic, msg.data);
       },
       onError: (err: unknown) => {
+        if (gen !== generation) return;
         state.conn = c.red(`live: ${(err as Error)?.message ?? err}; reconnecting`);
         tui.requestRender();
-        setTimeout(connect, 5000);
+        retry();
       },
     });
+    if (gen !== generation) return s.close("switched");
+    sub = s;
     state.conn = c.green("● live");
   } catch (err) {
+    if (gen !== generation) return;
     state.conn = c.red(`live: ${(err as Error).message}; retrying`);
-    setTimeout(connect, 5000);
+    retry();
   }
   tui.requestRender();
 }
-// Subscribe before starting, so the run's first messages aren't missed.
-await connect();
-if (argv.includes("--start")) await start();
+
+await watch(goalId);
+if (argv.includes("--start")) await start({ ...goalArgs, goalId });
+else if (!goalId) openForm();

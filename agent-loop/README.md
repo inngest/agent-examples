@@ -140,7 +140,7 @@ that shows one goal looping, starts it, and lets you answer its review
 without leaving the terminal.
 
 ```sh
-pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--inline] [goal flags]
+pnpm goal:watch -- [--goal <id>] [--dev | --cloud] [--start] [--inline] [goal flags]
 ```
 
 It takes over the whole window (the terminal's alternate screen, like `htop`):
@@ -196,26 +196,43 @@ What's on screen:
 
 ### Starting a goal
 
-When the goal has no run in flight, the footer shows what `s` would start:
+Press `s` (when the goal has no run in flight) to open the start form, or run
+`pnpm goal:watch` with no `--goal` and it opens at launch:
 
 ```
-s start model nvidia/nemotron-3.5-lightning, 10 attempts, 3 stalls, 4000 tok/turn, resets workspace  ·  q quit
+╭──────────────────────────────────────────────────────────────╮
+│ Start a goal  on Inngest Cloud                               │
+│                                                              │
+│ ▸ Goal id               canon-14▏                            │
+│   Model                 nvidia/nemotron-3.5-lightning        │
+│   Attempts              20                                   │
+│   Stalls before review  4                                    │
+│   Tokens per turn       4000                                 │
+│   Reasoning             worker default                       │
+│   Focus                 on                                   │
+│   Go docs in brief      off                                  │
+│   Examples per brief    10 (default)                         │
+│                                                              │
+│   Type to edit, Ctrl+U to clear. A new id starts a new goal… │
+│                                                              │
+│   ↑↓ move · ←→ change · Enter start · Esc cancel             │
+╰──────────────────────────────────────────────────────────────╯
 ```
 
-Press `s`, or pass `--start` to start right away. It takes the same goal flags
-as `goal:send`:
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--model <slug>` | `MODEL` on the worker | OpenRouter model slug |
-| `--max-attempts N` | 60 | attempts before the goal ends (capped at 110 by the step limit) |
-| `--max-stalls N` | 5 | attempts in a row without improvement before the review pause |
-| `--max-tokens N` | 4000 | output token limit per model turn |
+↑↓ picks a row, ←→ (or Space) changes it, typing edits the goal id, Enter
+starts. Starting under a different id than the one on screen switches the view
+to the new goal. Goal flags on the command line (the same ones `goal:send`
+takes: `--model`, `--max-attempts`, `--max-stalls`, `--max-tokens`,
+`--reasoning-effort`, `--reasoning-max-tokens`, `--no-focus`, `--spec`,
+`--examples N`) become the form's starting values; a `--model` slug that isn't
+in the list is added to it. `--start` skips the form and starts with the flags
+as given (needs `--goal`).
 
 On the dev server with the local backend, starting resets the shared
-`workspace/` to the stubs first. There is one workspace per machine, so don't
-start a local goal while another local goal is running. On Cloud (sandbox
-backend) every attempt is seeded from step state and nothing is reset.
+`workspace/` to the stubs first (the form says so). There is one workspace per
+machine, so don't start a local goal while another local goal is running. On
+Cloud (sandbox backend) every attempt is seeded from step state and nothing is
+reset.
 
 Starting a goal id that already ran starts a new run under the same id; the TUI
 always shows the latest run of an id.
