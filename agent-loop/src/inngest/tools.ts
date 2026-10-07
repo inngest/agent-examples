@@ -138,6 +138,9 @@ async function runTool(store: FileStore, name: string, rawArgs: string): Promise
         if ("error" in g) return { result: g.error };
         if (!g.key.endsWith(".ts")) return { result: "error: only .ts files can be written" };
         if (typeof args.content !== "string") return { result: "error: content must be a string" };
+        // An empty module typechecks, so without this an empty write reads as a
+        // clean success while it deletes the whole port.
+        if (args.content.trim() === "") return { result: "error: content is empty; write_file needs the complete file contents" };
         const bytes = Buffer.byteLength(args.content, "utf8");
         if (bytes > MAX_WRITE_BYTES) return { result: `error: file too large (${bytes} bytes, max ${MAX_WRITE_BYTES})` };
         await store.write(g.key, args.content);
@@ -164,6 +167,7 @@ async function runTool(store: FileStore, name: string, rawArgs: string): Promise
         }
         const idx = current.indexOf(oldString);
         const next = current.slice(0, idx) + newString + current.slice(idx + oldString.length);
+        if (next.trim() === "") return { result: "error: this edit would leave the file empty" };
         const bytes = Buffer.byteLength(next, "utf8");
         if (bytes > MAX_WRITE_BYTES) return { result: `error: file too large after edit (${bytes} bytes, max ${MAX_WRITE_BYTES})` };
         await store.write(g.key, next);

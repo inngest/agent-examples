@@ -41,6 +41,8 @@ ok(e.changed?.["semver.ts"]?.includes("'x'") === true, "memory: edit_file return
 ok((await call(m, "read_file", { path: "semver.ts" })).result.includes("'x'"), "memory: store reflects the edit");
 const f = await call(m, "finish_attempt", { summary: "done" });
 ok(f.finished === "done" && f.changed === undefined, "memory: finish_attempt has no changed");
+ok((await call(m, "write_file", { path: "semver.ts", content: "  \n" })).result.startsWith("error: content is empty"), "memory: empty write_file rejected");
+ok((await call(m, "edit_file", { path: "semver.ts", old_string: (await m.read("semver.ts")), new_string: "" })).result === "error: this edit would leave the file empty", "memory: edit to empty file rejected");
 // multi-file: .ts specifiers typecheck; .js ones are rejected (node type stripping in the sandbox can't resolve them)
 const mf = memoryStore({ "semver.ts": 'import { two } from "./util.ts";\nexport const x: number = two();\n', "util.ts": "export const two = (): number => 2;\n" });
 ok((await call(mf, "typecheck", {})).result === "typecheck passed: no errors", "memory: .ts import specifier typechecks");
