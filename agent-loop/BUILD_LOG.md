@@ -206,3 +206,15 @@
 - Fix (3d8fdb7): the invoke result goes through `isAttemptResult` (commit, changed, costUsd, tokens). Anything else, a cancellation included, becomes the same failed-attempt stall as a rejected invoke. The invoke result is memoized, so a goal-loop retry that runs the new code handles the same cancelled result.
 - Shipped together with 82b6570: `score-i` steps return `{ name, value }`. `step.score()` returns void, so its step output was `null` in the dashboard; the score is now written with `inngest.score()` inside our own `step.run` (same `inngest.score` metadata on the step).
 - **Recovered.** The goal-loop retry that ran 3d8fdb7 treated the cancelled attempt 2 as a stall ("attempt cancelled or returned no result"), ran the holdout in a Cloud sandbox, and emitted `goal/finished` at 15:55:12. Result: best 10,539 / 17,752 (0.594, attempt 1), holdout 2,701 / 4,455 (0.606), 2 attempts, $0.0008. **First complete goal on Inngest Cloud + Render + Sandboxes.** A code fix shipped mid-run, and the memoized invoke result was replayed against the new code: the run didn't need restarting.
+
+### render-smoke-2: fast routing on Cloud (15:58 UTC)
+
+- Deploy 1aacefa (throughput routing, cancel fix, score output). nemotron-3.5-lightning, sandbox backend, `--max-attempts 4`. Sent 15:58:17, COMPLETED 16:08:35 (10m18s).
+- Attempts (train failing / 17,752):
+  - 1 → 16,407 (0.924): 3 tool turns + **4 idle turns (cap hit)**, ~2 min, $0.0072.
+  - 2 → 16,520 (worse, reverted): 5 + 4 idle (cap hit), $0.0080.
+  - 3 → **8,189 (0.461, best)**: 8 turns, 1 idle, $0.0041.
+  - 4 → `changed: false` after 8 turns: no check step, reported at best's score (the unchanged-attempt skip, now seen on Cloud too). $0.0036.
+- Holdout 2,064 / 4,455 (0.463), ≈ train. Total **$0.0229**, 90.7k in / 91.2k out tokens.
+- **Speed fixed:** 2–4 min per attempt (~15–30s per turn) vs a 9-minute single turn on Io Net.
+- **New trade-off:** output tokens per attempt went up ~5–10× (91k out over 4 attempts; local probes were ~2–9k per attempt), and attempts 1–2 hit the idle cap. On the fast provider nemotron writes long chat-text turns (likely running to `max_tokens` 8,000) instead of tool calls. Costs are still about a cent per attempt, but the idle cap is now doing real work. Candidates: lower `maxTokensPerTurn` for this model, or check whether the CoreWeave route treats `tool_choice: required` differently from the providers used locally.
