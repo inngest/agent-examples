@@ -12,9 +12,19 @@ export function backend(): Backend {
   return v;
 }
 
-/** The sandbox backend's stand-in for a git commit: short content hash of the source. */
-export const sourceRef = (source: string): string => createHash("sha256").update(source).digest("hex").slice(0, 12);
+/** Sandbox backend workspace: file contents keyed by path relative to src/. */
+export type Files = Record<string, string>;
+
+/** The sandbox backend's stand-in for a git commit: short content hash of every file (path + contents). */
+export function filesRef(files: Files): string {
+  const h = createHash("sha256");
+  for (const p of Object.keys(files).sort()) h.update(p + "\0" + files[p] + "\0");
+  return h.digest("hex").slice(0, 12);
+}
 
 /** The stub semver.ts a fresh workspace starts from. */
 export const templateSource = (): string =>
   fs.readFileSync(path.join(REPO_ROOT, "workspace-template", "src", "semver.ts"), "utf8");
+
+/** The files a fresh sandbox-backend workspace starts from. */
+export const templateFiles = (): Files => ({ "semver.ts": templateSource() });

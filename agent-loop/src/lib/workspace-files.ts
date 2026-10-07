@@ -16,6 +16,9 @@ export const WORKSPACE_TSCONFIG =
         // which rejects enums, namespaces and parameter properties. Make the
         // agent's typecheck reject them too, so it hears about it before the check.
         erasableSyntaxOnly: true,
+        // Type stripping also doesn't rewrite import specifiers, so a relative
+        // import must name the .ts file ("./parse.ts", not "./parse.js").
+        allowImportingTsExtensions: true,
         skipLibCheck: true,
         noEmit: true,
         types: [],

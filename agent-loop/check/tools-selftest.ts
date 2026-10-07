@@ -41,6 +41,11 @@ ok(e.changed?.["semver.ts"]?.includes("'x'") === true, "memory: edit_file return
 ok((await call(m, "read_file", { path: "semver.ts" })).result.includes("'x'"), "memory: store reflects the edit");
 const f = await call(m, "finish_attempt", { summary: "done" });
 ok(f.finished === "done" && f.changed === undefined, "memory: finish_attempt has no changed");
+// multi-file: .ts specifiers typecheck; .js ones are rejected (node type stripping in the sandbox can't resolve them)
+const mf = memoryStore({ "semver.ts": 'import { two } from "./util.ts";\nexport const x: number = two();\n', "util.ts": "export const two = (): number => 2;\n" });
+ok((await call(mf, "typecheck", {})).result === "typecheck passed: no errors", "memory: .ts import specifier typechecks");
+const js = await call(mf, "edit_file", { path: "semver.ts", old_string: '"./util.ts"', new_string: '"./util.js"' });
+ok(js.result.includes("typecheck errors") && js.result.includes('must name the .ts file: "./util.ts"'), "memory: .js import specifier rejected");
 // local store never returns `changed`
 ok((await call(localFsStore, "finish_attempt", { summary: "s" })).changed === undefined, "fs: no changed field");
 

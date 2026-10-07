@@ -4,18 +4,14 @@ import { inngest } from "./client.js";
 import { TOOLS, executeTool } from "./tools.js";
 import { buildBrief, SYSTEM_PROMPT } from "../lib/prompt.js";
 import { commitAll, headMessage, headSha, isDirty, resetHard } from "../lib/git.js";
-import { backend, sourceRef } from "../lib/backend.js";
+import { backend, filesRef } from "../lib/backend.js";
 import { localFsStore, memoryStore } from "../lib/file-store.js";
-
-// Sandbox backend: the agent's workspace is this in-memory map (paths relative
-// to src/). The only entry that matters for scoring is semver.ts.
-const MAIN_FILE = "semver.ts";
 
 const AttemptInput = z.object({
   goalId: z.string(),
   i: z.number(),
   bestCommit: z.string(),
-  bestSource: z.string().optional(), // sandbox backend only: the best source to start from
+  bestFiles: z.record(z.string(), z.string()).optional(), // sandbox backend only: the best files to start from
   report: z.string(),
   humanNote: z.string().optional(),
   best: z.object({ failed: z.number(), total: z.number() }),
@@ -40,7 +36,7 @@ const oneLine = (s: string, max: number) => s.replace(/\s+/g, " ").trim().slice(
 export const agentAttempt = inngest.createFunction(
   { id: "agent-attempt", retries: 2, triggers: [invoke(AttemptInput)] },
   async ({ event, step }) => {
-    const { goalId, i, bestCommit, bestSource, report, humanNote, best, model, maxTurns, reasoningEffort, maxTokensPerTurn, reasoningMaxTokens } =
+    const { goalId, i, bestCommit, bestFiles, report, humanNote, best, model, maxTurns, reasoningEffort, maxTokensPerTurn, reasoningMaxTokens } =
       event.data;
 
     // OpenRouter treats reasoning.effort and reasoning.max_tokens as mutually
@@ -62,8 +58,8 @@ export const agentAttempt = inngest.createFunction(
     const sandbox = backend() === "sandbox";
     const files = new Map<string, string>();
     if (sandbox) {
-      const seed = await step.run("prepare", async () => ({ seed: bestSource ?? "" }));
-      files.set(MAIN_FILE, seed.seed);
+      const seed = await step.run("prepare", async () => ({ seed: bestFiles ?? {} }));
+      for (const [p, c] of Object.entries(seed.seed)) files.set(p, c);
     } else {
       await step.run("prepare", async () => {
         await resetHard(bestCommit);
@@ -173,9 +169,9 @@ export const agentAttempt = inngest.createFunction(
 
     const committed = await step.run("commit", async () => {
       if (sandbox) {
-        const source = files.get(MAIN_FILE) ?? "";
-        const commit = sourceRef(source);
-        return { commit, changed: commit !== bestCommit, source };
+        const out = Object.fromEntries(files);
+        const commit = filesRef(out);
+        return { commit, changed: commit !== bestCommit, files: out };
       }
       const prefix = `attempt ${i}: `;
       const head = await headSha();
@@ -190,6 +186,6 @@ export const agentAttempt = inngest.createFunction(
       return { commit: bestCommit, changed: false };
     });
 
-    return { commit: committed.commit, changed: committed.changed, source: "source" in committed ? committed.source : undefined, summary, turns, idleTurns, tokens, finished, costUsd };
+    return { commit: committed.commit, changed: committed.changed, files: "files" in committed ? committed.files : undefined, summary, turns, idleTurns, tokens, finished, costUsd };
   },
 );

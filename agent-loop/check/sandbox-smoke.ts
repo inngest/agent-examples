@@ -7,7 +7,7 @@ import { casesPath } from "./score-core.js";
 import { runCheckSandbox } from "./run-check-sandbox.js";
 import { computeCheckVersion } from "./run-check.js";
 import { CHECK_DIR } from "../src/lib/paths.js";
-import { sourceRef } from "../src/lib/backend.js";
+import { filesRef } from "../src/lib/backend.js";
 
 let failures = 0;
 // lookup-impl.ts reads ../../data at import time, which doesn't exist in a
@@ -27,9 +27,9 @@ function sandboxSource(name: string): string {
 }
 
 async function run(name: string, expectScore: number) {
-  const source = sandboxSource(name);
+  const files = { "semver.ts": sandboxSource(name) };
   const t = Date.now();
-  const r = await runCheckSandbox({ source, ref: sourceRef(source), set: "train" });
+  const r = await runCheckSandbox({ files, ref: filesRef(files), set: "train" });
   const good = r.score === expectScore && r.checkVersion === computeCheckVersion();
   console.log(`${good ? "PASS" : "FAIL"}  ${name}: score ${r.score} (${r.failed}/${r.total}), ${Date.now() - t}ms, checkVersion ${r.checkVersion}`);
   if (!good) {

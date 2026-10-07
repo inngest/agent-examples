@@ -6,9 +6,11 @@
 // Only *executing* agent code is untrusted, so this is the only place a
 // sandbox is used (typecheck runs on the worker). Sandboxes are cloud-only,
 // have no network, and the files API is the only way in:
-//   upload runner.ts + semver.ts + the ONE case file for the requested set
-//   (holdout cases are only ever uploaded for set=holdout), exec plain
-//   `node runner.ts` (node 26 native type stripping), download the JSONL.
+//   upload runner.ts + every workspace file under src/ (so a port split across
+//   files still loads) + the ONE case file for the requested set (holdout
+//   cases are only ever uploaded for set=holdout), exec plain
+//   `node runner.ts` (node 26 native type stripping, so relative imports need
+//   `.ts` specifiers), download the JSONL.
 // The runner's stdout goes to a file and is downloaded: exec output is
 // tail-truncated at a size cap and a full train run is >1MB of JSONL.
 //
@@ -23,6 +25,7 @@ import { inngest } from "../src/inngest/client.js";
 import { CHECK_DIR } from "../src/lib/paths.js";
 import { casesPath, scoreFromRunnerOutput } from "./score-core.js";
 import type { CaseSet, CheckResult } from "./types.js";
+import type { Files } from "../src/lib/backend.js";
 
 export const SANDBOX_TIMEOUT_MS = 60_000;
 const WORKDIR = "/workspace";
@@ -52,7 +55,7 @@ async function upload(sb: Sb, file: string, data: string): Promise<void> {
   }
 }
 
-export async function runCheckSandbox(opts: { source: string; ref: string; set: CaseSet }): Promise<CheckResult> {
+export async function runCheckSandbox(opts: { files: Files; ref: string; set: CaseSet }): Promise<CheckResult> {
   if (process.env.INNGEST_DEV) {
     throw new NonRetriableError(
       "sandbox grader needs Inngest Cloud (sandboxes don't exist on the dev server): unset INNGEST_DEV and set INNGEST_SIGNING_KEY",
@@ -66,18 +69,21 @@ export async function runCheckSandbox(opts: { source: string; ref: string; set: 
   });
   try {
     // /workspace doesn't exist in the image, and a cwd that doesn't exist 400s.
-    const mk = await sb.commands.run(["mkdir", "-p", WORKDIR], { cwd: "/", timeout: "15s" });
+    // Create every directory the workspace files need in the same call.
+    const dirs = new Set([WORKDIR, `${WORKDIR}/src`]);
+    for (const p of Object.keys(opts.files)) dirs.add(path.posix.dirname(`${WORKDIR}/src/${p}`));
+    const mk = await sb.commands.run(["mkdir", "-p", ...dirs], { cwd: "/", timeout: "15s" });
     if (mk.exitCode !== 0) throw new Error(`mkdir ${WORKDIR} failed: ${mk.stderr.trim()}`);
 
     await upload(sb, "package.json", JSON.stringify({ type: "module" }));
     await upload(sb, "runner.ts", fs.readFileSync(path.join(CHECK_DIR, "runner.ts"), "utf8"));
-    await upload(sb, "semver.ts", opts.source);
+    for (const [p, c] of Object.entries(opts.files)) await upload(sb, `src/${p}`, c);
     await upload(sb, "cases.jsonl", fs.readFileSync(casesPath(opts.set), "utf8"));
 
     let timedOut = false;
     try {
       await sb.commands.run(
-        ["/bin/sh", "-c", "node runner.ts semver.ts cases.jsonl > out.jsonl 2> err.txt"],
+        ["/bin/sh", "-c", "node runner.ts src/semver.ts cases.jsonl > out.jsonl 2> err.txt"],
         { cwd: WORKDIR, timeout: `${SANDBOX_TIMEOUT_MS}ms`, environment: { NODE_OPTIONS: "--max-old-space-size=256" } },
       );
     } catch (e) {

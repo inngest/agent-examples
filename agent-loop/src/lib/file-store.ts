@@ -90,6 +90,21 @@ export const localFsStore: FileStore = {
   typecheck: () => runTsc(WORKSPACE_DIR),
 };
 
+// The sandbox grader loads files with node's type stripping, which resolves
+// import specifiers literally: "./parse.js" won't find parse.ts there, though
+// NodeNext tsc accepts it. Report such imports like type errors.
+const JS_RELATIVE_IMPORT = /\b(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']*)\.js["']/g;
+
+function jsSpecifierErrors(files: Map<string, string>): string[] {
+  const errors: string[] = [];
+  for (const [k, v] of files) {
+    for (const m of v.matchAll(JS_RELATIVE_IMPORT)) {
+      errors.push(`src/${k}: import "${m[1]}.js" must name the .ts file: "${m[1]}.ts"`);
+    }
+  }
+  return errors;
+}
+
 /**
  * Sandbox backend: the workspace is an in-memory { "semver.ts": source } map
  * (paths relative to src/). Same guard semantics as the local store: relative
@@ -138,7 +153,10 @@ export function memoryStore(seed: Record<string, string>): FileStore {
           await fs.mkdir(path.dirname(p), { recursive: true });
           await fs.writeFile(p, v, "utf8");
         }
-        return await runTsc(dir);
+        const tsc = await runTsc(dir);
+        const specErrors = jsSpecifierErrors(files);
+        if (specErrors.length === 0) return tsc;
+        return { ok: false, output: [...specErrors, tsc.output].filter(Boolean).join("\n") };
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }

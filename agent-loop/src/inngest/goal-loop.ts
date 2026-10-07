@@ -4,27 +4,28 @@ import { DEFAULT_MODEL, GOAL_DEFAULTS, goalAttemptScored, goalFinished, goalRevi
 import { runCheck } from "../../check/run-check.js";
 import { runCheckSandbox } from "../../check/run-check-sandbox.js";
 import type { CaseSet, CheckResult } from "../../check/types.js";
-import { backend, sourceRef, templateSource } from "../lib/backend.js";
+import { backend, filesRef, templateFiles, type Files } from "../lib/backend.js";
 import { headSha, resetHard } from "../lib/git.js";
 import { recordScore } from "../lib/score.js";
 
 // Inngest caps a run at 1000 steps (platform limit; the SDK itself doesn't
-// enforce it). Each iteration uses ~5 steps (invoke, check, sendEvent, score,
-// revert-or-rebaseline) plus an occasional review wait, so budget 7 per
-// iteration and reserve ~10 for baseline/holdout/finished.
+// enforce it). Each iteration uses at most ~5 steps (invoke, check, sendEvent,
+// score, revert-or-rebaseline; an unchanged attempt skips check and revert)
+// plus an occasional review wait, so budget 7 per iteration and reserve ~10
+// for baseline/holdout/finished.
 const STEP_LIMIT = 1000;
 const STEPS_PER_ITERATION = 7;
 const RESERVED_STEPS = 10;
 const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_ITERATION); // 141
 
 // In the sandbox backend there's no git: a "commit" is a content hash of the
-// source, and the best result carries the source itself (step state is the
+// files, and the best result carries the files themselves (step state is the
 // only storage).
-type Best = CheckResult & { source?: string };
+type Best = CheckResult & { files?: Files };
 
-const check = (at: { commit: string; source?: string }, set: CaseSet): Promise<CheckResult> =>
+const check = (at: { commit: string; files?: Files }, set: CaseSet): Promise<CheckResult> =>
   backend() === "sandbox"
-    ? runCheckSandbox({ source: at.source ?? "", ref: at.commit, set })
+    ? runCheckSandbox({ files: at.files ?? {}, ref: at.commit, set })
     : runCheck({ commit: at.commit, set });
 
 export const goalLoop = inngest.createFunction(
@@ -54,8 +55,8 @@ export const goalLoop = inngest.createFunction(
     const baseline: Best = await step.run("baseline", async () => {
       if (sandbox) {
         // The stub source from the template; there is no workspace repo.
-        const source = templateSource();
-        return { ...(await check({ commit: sourceRef(source), source }, "train")), source };
+        const files = templateFiles();
+        return { ...(await check({ commit: filesRef(files), files }, "train")), files };
       }
       return check({ commit: await headSha() }, "train");
     });
@@ -80,7 +81,7 @@ export const goalLoop = inngest.createFunction(
             goalId,
             i,
             bestCommit: best.commit,
-            bestSource: best.source,
+            bestFiles: best.files,
             report: best.report,
             humanNote,
             best: { failed: best.failed, total: best.total },
@@ -94,7 +95,7 @@ export const goalLoop = inngest.createFunction(
         .catch(() => ({
           commit: best.commit,
           changed: false,
-          source: best.source,
+          files: best.files,
           summary: "attempt failed",
           turns: 0,
           idleTurns: 0,
@@ -107,7 +108,13 @@ export const goalLoop = inngest.createFunction(
       totalTokens.input += attempt.tokens.input;
       totalTokens.output += attempt.tokens.output;
 
-      const result = await step.run(`check-${i}`, () => check({ commit: attempt.commit, source: attempt.source }, "train"));
+      // An attempt that changed nothing (or failed) is still at `best`: skip the
+      // check and the revert and count a stall. `changed` is memoized from the
+      // invoke, so the step ids stay deterministic. A check change made in the
+      // meantime is picked up by the next attempt that does change something.
+      const result: CheckResult = attempt.changed
+        ? await step.run(`check-${i}`, () => check({ commit: attempt.commit, files: attempt.files }, "train"))
+        : best;
 
       await step.sendEvent(
         `scored-${i}`,
@@ -132,19 +139,19 @@ export const goalLoop = inngest.createFunction(
 
       // The check changed under us (e.g. cases edited mid-run): re-score the
       // incumbent with the new check so scores stay comparable.
-      if (result.checkVersion !== best.checkVersion) {
+      if (attempt.changed && result.checkVersion !== best.checkVersion) {
         const rebaselined = await step.run(`rebaseline-${i}`, () => check(best, "train"));
-        best = { ...rebaselined, source: best.source };
+        best = { ...rebaselined, files: best.files };
       }
 
-      if (result.score < best.score) {
-        best = { ...result, source: attempt.source };
+      if (attempt.changed && result.score < best.score) {
+        best = { ...result, files: attempt.files };
         stalls = 0;
       } else {
         stalls++;
-        // Sandbox backend: every attempt is seeded from `best.source`, so state
+        // Sandbox backend: every attempt is seeded from `best.files`, so state
         // is already the best by construction and there is nothing to revert.
-        if (!sandbox) {
+        if (!sandbox && attempt.changed) {
           await step.run(`revert-${i}`, async () => {
             await resetHard(best.commit);
             return { reverted: best.commit };

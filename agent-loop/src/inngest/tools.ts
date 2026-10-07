@@ -32,7 +32,7 @@ export const TOOLS = [
     function: {
       name: "write_file",
       description:
-        "Create a new .ts file under src/, or fully rewrite one, with the complete given contents (max 50KB). For targeted fixes to an existing file use edit_file instead. Runs the typechecker after writing and returns the result.",
+        "Create a new .ts file under src/, or fully rewrite one, with the complete given contents (max 50KB). Relative imports between your files must use the .ts extension (import { x } from \"./parse.ts\"). For targeted fixes to an existing file use edit_file instead. Runs the typechecker after writing and returns the result.",
       parameters: {
         type: "object",
         properties: {
