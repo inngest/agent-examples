@@ -30,7 +30,7 @@ services:
         value: https://openrouter.ai/api/v1/
       # Default agent model; a goal/started event can still set data.model.
       - key: MODEL
-        value: qwen/qwen3-coder-30b-a3b-instruct
+        value: nvidia/nemotron-3.5-lightning
       # local = git workspace on disk (dev); sandbox = step state + Inngest Sandboxes.
       - key: WORKSPACE_BACKEND
         value: sandbox

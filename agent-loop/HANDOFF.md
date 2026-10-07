@@ -18,7 +18,7 @@ A `/goal` loop on Inngest. A small model ports `golang.org/x/mod/semver` to Type
 
 ## Current defaults
 
-- Model: set by the `MODEL` env var on the worker, or per goal with `goal/started` `data.model`. The default is `qwen/qwen3-coder-30b-a3b-instruct` via OpenRouter. It's non-thinking, about $0.002 and a minute per attempt, and plateaus around 0.33 without help.
+- Model: set by the `MODEL` env var on the worker, or per goal with `goal/started` `data.model`. The Render worker (`agent-loop/render.yaml`) uses `nvidia/nemotron-3.5-lightning` (non-thinking, fast, every turn a tool call under strict routing; reached 0.377–0.445 in 4–6 attempts in the local probes). The default is `qwen/qwen3-coder-30b-a3b-instruct` via OpenRouter. It's non-thinking, about $0.002 and a minute per attempt, and plateaus around 0.33 without help.
 - `maxAttempts` 60, `maxStalls` 5, `maxTurnsPerAttempt` 8, `maxTokensPerTurn` 8000.
 - `tool_choice: "required"` and OpenRouter `provider.require_parameters`. Turns without a tool call don't count toward `maxTurnsPerAttempt`. They're tracked as `idleTurns` and capped at 4 per attempt. `edit_file` rejects edits that change nothing.
 - Reasoning controls (`reasoningEffort` / `reasoningMaxTokens`) are **opt-in per goal**. Only set them for thinking models such as `qwen/qwen3.8-27b`. Sending `reasoning` to a non-thinking model gets an OpenRouter 404 under strict routing.
