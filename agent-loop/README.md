@@ -131,8 +131,13 @@ that shows one goal looping, starts it, and lets you answer its review
 without leaving the terminal.
 
 ```sh
-pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [goal flags]
+pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--inline] [goal flags]
 ```
+
+It takes over the whole window (the terminal's alternate screen, like `htop`):
+the chart grows with the window, the live pane gets the spare rows, and the
+key hints sit on the last row. Quitting gives the scrollback back. `--inline`
+draws in the normal buffer instead.
 
 ```
 goal-loop canon-3  Inngest Cloud  nvidia/nemotron-3.5-lightning  attempt 22/60  stalls 1/5  best 0.337  $0.116  ● live

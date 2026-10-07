@@ -221,7 +221,13 @@ export const agentAttempt = inngest.createFunction(
       // non-retriable), which fails the attempt. History gets "{}" instead.
       messages.push({
         role: "assistant",
-        content: msg?.content ?? null,
+        // A turn with neither text nor a tool call (all reasoning, or cut off
+        // before either) can't go back as content null: stricter providers
+        // reject the next request with a non-retriable 400 ("Assistant message
+        // must have either content or tool_calls"). Dropping the turn instead
+        // would put two user messages in a row, which strict chat templates
+        // also reject, so it gets a placeholder.
+        content: msg?.content || (calls.length ? null : "(no output)"),
         ...(calls.length
           ? { tool_calls: calls.map((c) => (isJsonObject(c.function.arguments) ? c : { ...c, function: { ...c.function, arguments: "{}" } })) }
           : {}),

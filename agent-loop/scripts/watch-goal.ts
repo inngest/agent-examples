@@ -24,7 +24,7 @@ const argv = process.argv.slice(2);
 const goalArgs = parseGoalArgs(argv);
 const goalId = goalArgs.goalId;
 if (!goalId) {
-  console.error("usage: pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N]");
+  console.error("usage: pnpm goal:watch -- --goal <id> [--dev | --cloud] [--start] [--model <slug>] [--max-attempts N] [--max-stalls N] [--max-tokens N] [--reasoning-effort low|medium|high] [--reasoning-max-tokens N] [--no-focus] [--inline]");
   process.exit(2);
 }
 
@@ -156,12 +156,19 @@ function onLoop(m: LoopMessage) {
 
 // --- rendering ---
 const BLOCKS = " ▁▂▃▄▅▆▇█";
-const CHART_ROWS = 6;
+
+// Full screen by default: the alternate screen buffer (like htop or less), so
+// the dashboard fills the window and quitting gives the scrollback back.
+// --inline renders in place in the normal buffer instead.
+const fullScreen = !argv.includes("--inline");
 
 class Dashboard implements Component {
   invalidate() {}
   render(width: number): string[] {
     const fit = (s: string) => truncateToWidth(s, width);
+    // Rows this component may use: the window, less the review editor below it.
+    const height = fullScreen ? Math.max(10, terminal.rows - (editorShown ? editor.render(width).length : 0)) : Infinity;
+    const chartRows = fullScreen ? Math.max(6, Math.min(12, Math.floor(height / 6))) : 6;
     const rows = sorted();
     const last = lastRow();
     const out: string[] = [];
@@ -187,11 +194,11 @@ class Dashboard implements Component {
     const lo = ref.length ? Math.max(0, Math.floor((Math.min(...ref) - 0.05) * 20) / 20) : 0;
     const hi = all.length ? Math.min(1, Math.max(lo + 0.05, Math.ceil((Math.max(...all) + 0.01) * 20) / 20)) : 1;
     const pct = (v: number) => `${Math.round(v * 100)}%`.padStart(4);
-    for (let r = CHART_ROWS - 1; r >= 0; r--) {
-      let line = c.dim(r === CHART_ROWS - 1 ? `${pct(hi)} ┤ ` : r === 0 ? `${pct(lo)} ┤ ` : "     │ ");
+    for (let r = chartRows - 1; r >= 0; r--) {
+      let line = c.dim(r === chartRows - 1 ? `${pct(hi)} ┤ ` : r === 0 ? `${pct(lo)} ┤ ` : "     │ ");
       for (const row of cols) {
         const v = pass(row);
-        const eighths = Math.round(((v - lo) / (hi - lo)) * CHART_ROWS * 8) - r * 8;
+        const eighths = Math.round(((v - lo) / (hi - lo)) * chartRows * 8) - r * 8;
         const ch = v < lo ? (r === 0 ? "·" : " ") : BLOCKS[Math.max(0, Math.min(8, eighths))]!;
         line += outcomeColour[row.outcome](ch);
       }
@@ -219,6 +226,15 @@ class Dashboard implements Component {
     }
     out.push("");
 
+    // Flash and key hints sit at the bottom; the pane in between gets the rest.
+    const bottom: string[] = [];
+    if (state.flash) bottom.push(fit(state.flash));
+    if (!state.waiting) {
+      const startHint = state.running || state.starting ? "" : `s start ${startSummary()}  ·  `;
+      bottom.push(fit(c.dim(`${startHint}q quit`)));
+    }
+    const room = Math.max(2, height - out.length - bottom.length);
+
     if (state.finished) {
       const f = state.finished;
       out.push(
@@ -233,18 +249,17 @@ class Dashboard implements Component {
       const cur = state.current;
       const ctx = cur.ctx === undefined ? "" : `  context ${cur.window ? meter(cur.ctx, cur.window) : `${kTok(cur.ctx)} tok`}`;
       out.push(fit(`${c.bold(`attempt ${cur.i}`)} ${c.dim(`running ${ago(cur.since)}${cur.provider ? ` · ${cur.provider}` : ""}`)}${ctx}`));
-      for (const l of cur.lines.slice(-10)) out.push(fit(`  ${l}`));
+      for (const l of cur.lines.slice(-(fullScreen ? room - 1 : 10))) out.push(fit(`  ${l}`));
     } else if (state.running) {
       out.push(fit(c.dim(state.rows.size ? "waiting for the next attempt…" : "starting: scoring the baseline…")));
     } else if (!state.finished) {
       out.push(fit(c.dim("no run of this goal yet")));
     }
-    if (state.flash) out.push(fit(state.flash));
-    if (!state.waiting) {
-      const startHint = state.running || state.starting ? "" : `s start ${startSummary()}  ·  `;
-      out.push(fit(c.dim(`${startHint}q quit`)));
-    }
-    return out;
+    if (!fullScreen) return [...out, ...bottom];
+    // Pad (or, in a short window, clip the pane) so the hints land on the last row.
+    const body = out.slice(0, height - bottom.length);
+    while (body.length < height - bottom.length) body.push("");
+    return [...body, ...bottom];
   }
 }
 
@@ -329,7 +344,8 @@ function reviewPane(width: number, rows: ScoredMessage[]): string[] {
 }
 
 // --- TUI wiring ---
-const tui = new TUI(new ProcessTerminal());
+const terminal = new ProcessTerminal();
+const tui = new TUI(terminal);
 const dashboard = new Dashboard();
 const identity = (s: string) => s;
 const editor = new Editor(tui, {
@@ -368,6 +384,11 @@ async function sendReview(action: "continue" | "stop", note?: string) {
 }
 editor.onSubmit = (text) => void sendReview("continue", text.trim() || undefined);
 
+const ALT_SCREEN_ON = "\x1b[?1049h";
+const ALT_SCREEN_OFF = "\x1b[?1049l";
+// Leave the alternate screen however the process ends (quit, crash, signal).
+if (fullScreen) process.on("exit", () => process.stdout.write(ALT_SCREEN_OFF));
+
 const quit = () => {
   sub?.close("quit");
   tui.stop();
@@ -384,6 +405,7 @@ tui.addInputListener((data) => {
   return undefined;
 });
 
+if (fullScreen) process.stdout.write(ALT_SCREEN_ON);
 tui.start();
 const ticker = setInterval(() => tui.requestRender(), 1000);
 ticker.unref();

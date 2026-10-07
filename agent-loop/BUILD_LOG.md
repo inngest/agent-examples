@@ -308,3 +308,10 @@
 - **Rotation remembers:** goal-loop counts, per function, focused attempts that weren't kept (`focusMisses`). The next focus is the failing function with the fewest misses, most-failing first among equals. A kept attempt adds no miss, so focus stays on a function while it keeps improving and moves on from one it can't fix; nothing resets after a kept attempt. Plain loop state, rebuilt on replay.
 - Offline: the stub gives no focus and lists all 9 functions; on the 4,883-failing best with every attempt missing, focus goes Max → MajorMinor → Compare → Canonical → Prerelease → Sort instead of back to Max.
 - Next: `canon-6` and `canon-6-nofocus`, started together on the same deploy.
+
+### A bigger model, and an empty assistant turn that killed the attempt (~20:15 UTC)
+
+- Trying a larger model on Cloud: `NonRetriableError: model call 400 … "Assistant message must have either content or tool_calls, but not none." (invalid_request_assistant_message, code 3240)`.
+- Cause: a turn that returned neither text nor a tool call (e.g. everything spent on reasoning) went back into the history as `{ role: "assistant", content: null }`. Nemotron's providers accepted it; this one validates and rejects the *next* request, and a 400 is non-retriable, so the attempt failed (the loop counts it as a stall and goes on).
+- Fix: such a turn goes back as content `"(no output)"`. Dropping it instead would leave two user messages in a row (the nudge follows), which strict chat templates reject too.
+- Same family as the cut-off tool-call 400 (canon-3 #18): whatever goes back into the history has to be valid for the strictest provider, not just the one that produced it.
