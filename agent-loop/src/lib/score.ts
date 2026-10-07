@@ -1,15 +1,18 @@
 // All scoring goes through here so SDK API changes touch one place.
-// Uses step.score(memoizationId, { name, value }) from scoreMiddleware()
-// (inngest/experimental): a durable score write attached to the current run.
-type ScoreStep = {
-  score: (id: string, opts: { name: string; value: number | boolean }) => Promise<void>;
+// step.score() (scoreMiddleware, inngest/experimental) returns void, so its
+// step shows a null output in the dashboard. Instead, write the score with
+// inngest.score() inside our own step.run: called from inside a step it
+// attaches the same inngest.score metadata to that step, and the step output
+// carries the value too.
+import { inngest } from "../inngest/client.js";
+
+type RunStep = {
+  run: <T>(id: string, fn: () => Promise<T>) => Promise<unknown>;
 };
 
-export async function recordScore(
-  step: ScoreStep,
-  id: string,
-  name: string,
-  value: number | boolean,
-): Promise<void> {
-  await step.score(id, { name, value });
+export async function recordScore(step: RunStep, id: string, name: string, value: number | boolean): Promise<void> {
+  await step.run(id, async () => {
+    await inngest.score({ name, value });
+    return { name, value };
+  });
 }

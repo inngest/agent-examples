@@ -6,6 +6,6 @@ export const inngest = new Inngest({
   eventKey: process.env.INNGEST_EVENT_KEY,
   // Identifies the deployed version for rolling deploys (set from RENDER_GIT_COMMIT in the Dockerfile).
   appVersion: process.env.INNGEST_APP_VERSION,
-  // Enables step.score() so the check's fail-rate is plotted per attempt.
+  // Enables the experimental score API (see src/lib/score.ts) so the fail-rate is plotted per attempt.
   middleware: [scoreMiddleware()],
 });
