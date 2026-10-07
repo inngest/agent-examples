@@ -11,10 +11,13 @@ export const GOAL_DEFAULTS = {
   maxTokensPerTurn: 8000,
 } as const;
 
+// Used when neither the event nor the MODEL env var names a model.
+export const DEFAULT_MODEL = "qwen/qwen3-coder-30b-a3b-instruct";
+
 export const goalStarted = eventType("goal/started", {
   schema: z.object({
     goalId: z.string().min(1),
-    model: z.string().min(1),
+    model: z.string().min(1).optional(), // default: MODEL env on the worker
     maxAttempts: z.number().int().positive().optional(), // default 60
     maxStalls: z.number().int().positive().optional(), // default 5
     maxTurnsPerAttempt: z.number().int().positive().optional(), // default 8
@@ -46,6 +49,7 @@ export const goalAttemptScored = eventType("goal/attempt.scored", {
     changed: z.boolean(),
     finished: z.boolean(),
     turns: z.number(),
+    idleTurns: z.number(), // turns that ended without a tool call
     costUsd: z.number(),
   }),
 });

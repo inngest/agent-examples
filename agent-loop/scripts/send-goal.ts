@@ -19,9 +19,10 @@ if (!goalId) {
   console.error("usage: pnpm goal:send -- --goal <id> [--model <slug>] [--max-attempts N] [--max-stalls N]");
   process.exit(2);
 }
-const model = get("--model") ?? "qwen/qwen3-coder-30b-a3b-instruct";
+// Unset → the worker resolves MODEL from its own env (or DEFAULT_MODEL).
+const model = get("--model") ?? (process.env.MODEL || undefined);
 
 const res = await inngest.send(
   goalStarted.create({ goalId, model, maxAttempts: num("--max-attempts"), maxStalls: num("--max-stalls") }),
 );
-console.log(`sent goal/started goalId=${goalId} model=${model} ids=${res.ids.join(",")}`);
+console.log(`sent goal/started goalId=${goalId} model=${model ?? "(worker MODEL env)"} ids=${res.ids.join(",")}`);

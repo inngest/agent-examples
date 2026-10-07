@@ -153,6 +153,9 @@ async function runTool(store: FileStore, name: string, rawArgs: string): Promise
         if (typeof args.new_string !== "string") return { result: "error: new_string must be a string" };
         const oldString = args.old_string;
         const newString = args.new_string;
+        if (newString === oldString) {
+          return { result: "error: new_string is identical to old_string, so this edit changes nothing" };
+        }
         const current = await store.read(g.key);
         const count = current.split(oldString).length - 1;
         if (count === 0) return { result: "error: old_string not found in file (0 matches); read_file and copy it exactly" };

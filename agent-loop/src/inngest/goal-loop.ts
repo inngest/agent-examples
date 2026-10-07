@@ -1,6 +1,6 @@
 import { inngest } from "./client.js";
 import { agentAttempt } from "./agent-attempt.js";
-import { GOAL_DEFAULTS, goalAttemptScored, goalFinished, goalReviewSubmitted, goalStarted } from "./events.js";
+import { DEFAULT_MODEL, GOAL_DEFAULTS, goalAttemptScored, goalFinished, goalReviewSubmitted, goalStarted } from "./events.js";
 import { runCheck } from "../../check/run-check.js";
 import { runCheckSandbox } from "../../check/run-check-sandbox.js";
 import type { CaseSet, CheckResult } from "../../check/types.js";
@@ -34,7 +34,12 @@ export const goalLoop = inngest.createFunction(
     triggers: [goalStarted],
   },
   async ({ event, step }) => {
-    const { goalId, model } = event.data;
+    const { goalId } = event.data;
+    // Env is read inside a step so a redeploy with a different MODEL can't
+    // change the model of a run that's already in flight.
+    const model =
+      event.data.model ??
+      (await step.run("resolve-model", () => process.env.MODEL || DEFAULT_MODEL));
     const maxAttempts = Math.min(event.data.maxAttempts ?? GOAL_DEFAULTS.maxAttempts, MAX_ATTEMPTS_CAP);
     const maxStalls = event.data.maxStalls ?? GOAL_DEFAULTS.maxStalls;
     const maxTurns = event.data.maxTurnsPerAttempt ?? GOAL_DEFAULTS.maxTurnsPerAttempt;
@@ -92,6 +97,7 @@ export const goalLoop = inngest.createFunction(
           source: best.source,
           summary: "attempt failed",
           turns: 0,
+          idleTurns: 0,
           tokens: { input: 0, output: 0 },
           finished: false,
           costUsd: 0,
@@ -118,6 +124,7 @@ export const goalLoop = inngest.createFunction(
           changed: attempt.changed,
           finished: attempt.finished,
           turns: attempt.turns,
+          idleTurns: attempt.idleTurns,
           costUsd: attempt.costUsd,
         }),
       );

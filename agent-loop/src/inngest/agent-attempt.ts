@@ -32,6 +32,9 @@ type Msg =
   | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 
+// Cap on turns that end without a tool call, per attempt (see the turn loop).
+const MAX_IDLE_TURNS = 4;
+
 const oneLine = (s: string, max: number) => s.replace(/\s+/g, " ").trim().slice(0, max);
 
 export const agentAttempt = inngest.createFunction(
@@ -83,10 +86,17 @@ export const agentAttempt = inngest.createFunction(
     const baseUrl = process.env.MODEL_BASE_URL ?? "https://openrouter.ai/api/v1/";
     const apiKey = process.env.MODEL_API_KEY ?? process.env.OPENROUTER_API_KEY;
 
-    for (let t = 1; t <= maxTurns && !summary; t++) {
-      turns = t;
+    // `turns` counts turns that acted through a tool and is what maxTurns
+    // budgets. Turns where the model answered in chat instead (about half of
+    // them for small models, even with tool_choice "required") are counted
+    // separately and capped, so they can't eat the budget or loop forever.
+    // `t` numbers every model call and keeps step ids unique.
+    let idleTurns = 0;
+    let warnedLastTurn = false;
+    for (let t = 1; turns < maxTurns && idleTurns < MAX_IDLE_TURNS && !summary; t++) {
       // Derived only from loop variables, so replay rebuilds identical messages.
-      if (t === maxTurns) {
+      if (turns === maxTurns - 1 && !warnedLastTurn) {
+        warnedLastTurn = true;
         messages.push({
           role: "user",
           content: "This is your last turn. Call finish_attempt now with a one-line summary of what you changed.",
@@ -121,6 +131,7 @@ export const agentAttempt = inngest.createFunction(
       });
 
       if (calls.length === 0) {
+        idleTurns++;
         messages.push({
           role: "user",
           content:
@@ -130,6 +141,7 @@ export const agentAttempt = inngest.createFunction(
         });
         continue;
       }
+      turns++;
 
       for (let n = 0; n < calls.length; n++) {
         const call = calls[n]!;
@@ -153,7 +165,11 @@ export const agentAttempt = inngest.createFunction(
       }
     }
 
-    if (!summary) summary = `(no finish_attempt after ${turns} turns)`;
+    if (!summary)
+      summary =
+        idleTurns >= MAX_IDLE_TURNS
+          ? `(stopped after ${idleTurns} turns without a tool call)`
+          : `(no finish_attempt after ${turns} turns)`;
 
     const committed = await step.run("commit", async () => {
       if (sandbox) {
@@ -174,6 +190,6 @@ export const agentAttempt = inngest.createFunction(
       return { commit: bestCommit, changed: false };
     });
 
-    return { commit: committed.commit, changed: committed.changed, source: "source" in committed ? committed.source : undefined, summary, turns, tokens, finished, costUsd };
+    return { commit: committed.commit, changed: committed.changed, source: "source" in committed ? committed.source : undefined, summary, turns, idleTurns, tokens, finished, costUsd };
   },
 );

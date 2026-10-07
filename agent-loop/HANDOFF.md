@@ -18,9 +18,9 @@ A `/goal` loop on Inngest. A small model ports `golang.org/x/mod/semver` to Type
 
 ## Current defaults
 
-- Model: `qwen/qwen3-coder-30b-a3b-instruct` via OpenRouter. It's non-thinking, about $0.002 and a minute per attempt, and plateaus around 0.33 without help.
+- Model: set by the `MODEL` env var on the worker, or per goal with `goal/started` `data.model`. The default is `qwen/qwen3-coder-30b-a3b-instruct` via OpenRouter. It's non-thinking, about $0.002 and a minute per attempt, and plateaus around 0.33 without help.
 - `maxAttempts` 60, `maxStalls` 5, `maxTurnsPerAttempt` 8, `maxTokensPerTurn` 8000.
-- `tool_choice: "required"` and OpenRouter `provider.require_parameters`.
+- `tool_choice: "required"` and OpenRouter `provider.require_parameters`. Turns without a tool call don't count toward `maxTurnsPerAttempt`. They're tracked as `idleTurns` and capped at 4 per attempt. `edit_file` rejects edits that change nothing.
 - Reasoning controls (`reasoningEffort` / `reasoningMaxTokens`) are **opt-in per goal**. Only set them for thinking models such as `qwen/qwen3.8-27b`. Sending `reasoning` to a non-thinking model gets an OpenRouter 404 under strict routing.
 
 ## Setup on a new machine
@@ -77,7 +77,7 @@ Gotchas:
 
 ## Known issues / ideas
 
-- About half the coder model's turns end without a tool call even with `tool_choice: "required"`. Providers accept the setting but don't enforce it. The nudge recovers each time at the cost of a turn. It's a post beat, not a bug.
+- Some providers don't enforce `tool_choice: "required"`. The share of turns without a tool call ranged from 0% to about 50% between runs. Those turns are now tracked as `idleTurns` and don't use up the turn budget. It's a post beat, not a bug.
 - The model rarely calls `finish_attempt`, so most attempts use all 8 turns. Harmless, because the commit step saves the work either way.
 - An attempt that changed nothing still runs a check and a no-op revert. That's a small optimisation.
 - The sandbox grader only uploads `semver.ts`, so a solution split across multiple files would fail to load there.
