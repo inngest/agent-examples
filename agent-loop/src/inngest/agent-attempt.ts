@@ -108,7 +108,9 @@ export const agentAttempt = inngest.createFunction(
           tool_choice: "required",
           // OpenRouter otherwise may route to a provider that silently ignores
           // tool_choice; only route to providers that honour every parameter.
-          ...(baseUrl.includes("openrouter.ai") ? { provider: { require_parameters: true } } : {}),
+          // Among those, take the fastest: default routing once sent nemotron
+          // to a 8 tok/s provider (a 9-minute turn) while another did 240 tok/s.
+          ...(baseUrl.includes("openrouter.ai") ? { provider: { require_parameters: true, sort: "throughput" } } : {}),
           ...(reasoning ? { reasoning } : {}),
           max_tokens: maxTokensPerTurn,
         } as never,

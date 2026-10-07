@@ -190,3 +190,11 @@
 - **Every create returned `503 compute_unavailable` (`retryable: true`) at 512MB**, three tries over 40s. Probing sizes: 1 vCPU/256MB and 512MB → 503 every time; **1 vCPU/1024MB → up in 1.5s**, 2/2048 → 1.1s. It looks like a minimum memory size reported as a capacity error. `MEMORY_MB` is now 1024 (the runner heap stays capped at 256MB). The sandbox image runs node v26.5.0.
 - **`pnpm check:sandbox-smoke`: PASS.** Stub 17,752/17,752 (score 1, 5.7s) and lookup 0/17,752 (score 0, 5.6s), checkVersion `9ef47c667fd7` (same as local). This was the first real run of the sandbox grader.
 - Multi-file in a real sandbox: `semver.ts` = `export * from "./lib/impl.ts"` with the lookup table in `lib/impl.ts` → score 0. Uploads under `src/`, the subdirectory and `.ts` specifiers all work under node type stripping.
+
+### First Cloud run on Render: a 9-minute turn 1 (render-smoke-1, 15:28 UTC)
+
+- Render Blueprint `agent-loop/render.yaml` applied by the user → `goal-loop-worker` (srv-db3698gm7kps73d69tk0, Inngest team workspace, oregon). **The Docker image built on its first try** (46s), and the worker connected via Connect (`ACTIVE`, `backend=sandbox`) at 15:27:10. A second instance seen at start-up was Render's deploy overlap; it drained cleanly (`WORKER_PAUSE`, `inFlightCount: 0`) at 15:28:07.
+- `render-smoke-1` (`--max-attempts 2`) sent 15:28:10. **turn-1 sat on attempt 0, "running", no error, for ~9 minutes**, then completed with 12 tool calls at once. Nothing showed up in the worker logs, because on Cloud `step.ai.infer` runs on the Inngest server.
+- Cause: **OpenRouter routing, not Inngest.** Direct calls with the same body (`tool_choice: required`, `provider.require_parameters`) all went to **Io Net at 7–9 tok/s**; the user's dashboard confirmed ~8 tok/s for the turn, against ~103 tok/s in the local probes earlier in the day. With `max_tokens` 8,000 and nemotron's long batched turns, that's minutes per turn.
+- Fix: `provider.sort: "throughput"` alongside `require_parameters`. The same request then routed to **CoreWeave at ~240 tok/s** (227 tokens in 1.0s, `list_files` called), at a similar cost per token.
+- Post beat: the slowness was invisible from the worker. The durable step just waited, with no error and no retry. Only the provider's throughput explained it. Routing is part of the harness too.
