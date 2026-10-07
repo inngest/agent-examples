@@ -3,10 +3,7 @@
 // the step: the watcher is a viewer, and must never fail or retry the goal.
 import { inngest } from "../inngest/client.js";
 import { goalChannel, type AttemptMessage, type LoopMessage } from "../inngest/channel.js";
-
-type RunStep = {
-  run: <T>(id: string, fn: () => Promise<T>) => Promise<unknown>;
-};
+import type { RunStep } from "./step-types.js";
 
 const publish = (step: RunStep, id: string, send: () => Promise<void>) =>
   step.run(id, async () => {

@@ -10,6 +10,8 @@
     "golden": "go run ./golden",
     "check:tools": "tsx check/tools-selftest.ts",
     "check:selftest": "tsx check/selftest.ts",
+    "check:harness": "tsx check/harness-selftest.ts",
+    "spec:gen": "tsx scripts/gen-spec.ts",
     "check": "tsx check/run-check.ts",
     "workspace:reset": "tsx scripts/reset-workspace.ts",
     "dev": "INNGEST_DEV=1 tsx watch --import @inngest/otel/node src/server.ts",

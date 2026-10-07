@@ -1,9 +1,21 @@
+// Realtime contract between the worker (goal-loop and agent-attempt publish)
+// and `pnpm goal:watch` (subscribes). One channel per goal, two topics:
+//   loop     LoopMessage: goal-level progress, one message per decision
+//   attempt  AttemptMessage: live detail of the attempt in flight
+// Realtime has no history, so the watcher rebuilds the past from the REST
+// events API (src/lib/goal-history.ts) and uses this channel only for what
+// happens while it's open.
 import { channel, staticSchema } from "inngest/realtime";
 
-// Shared contract between the worker (goal-loop and agent-attempt publish) and
-// `pnpm goal:watch` (subscribes). Realtime has no history, so the watcher
-// rebuilds the past from the REST events API (src/lib/goal-history.ts) and
-// uses this channel only for what happens while it's open.
+export const goalChannel = channel({
+  name: (goalId: string) => `goal:${goalId}`,
+  topics: {
+    loop: { schema: staticSchema<LoopMessage>() },
+    attempt: { schema: staticSchema<AttemptMessage>() },
+  },
+});
+
+// --- loop topic ---
 
 // What the loop decided about one attempt. `outcome` is the keep/revert
 // verdict; `bestScore` and `stalls` are the loop state after it.
@@ -41,8 +53,11 @@ export type LoopMessage =
       holdout: { failed: number; total: number; score: number; pass: boolean };
     };
 
-// Live detail of the attempt in flight: one message per model turn and per
-// tool call. `text` is a short excerpt of what the model said, if anything.
+// --- attempt topic ---
+
+// One message per model turn and per tool call; `i` is the attempt, `t` the
+// turn, `n` the tool call within the turn. `text` is a short excerpt of what
+// the model said, if anything.
 export type AttemptMessage =
   | { type: "attempt.started"; i: number }
   // `inputTokens` is the whole prompt this turn (system, brief, history), i.e.
@@ -63,15 +78,8 @@ export type AttemptMessage =
       provider?: string;
     }
   | { type: "tool"; i: number; t: number; n: number; name: string; result: string }
+  // finish_attempt was refused because the attempt hadn't changed any file yet.
   | { type: "finish.refused"; i: number; t: number };
 
-// One channel per goal; the watcher subscribes to both topics.
-export const goalChannel = channel({
-  name: (goalId: string) => `goal:${goalId}`,
-  topics: {
-    loop: { schema: staticSchema<LoopMessage>() },
-    attempt: { schema: staticSchema<AttemptMessage>() },
-  },
-});
-
+/** Whitespace-collapsed, clipped text for realtime messages. */
 export const excerpt = (s: string | null | undefined, max = 160) => (s ?? "").replace(/\s+/g, " ").trim().slice(0, max);

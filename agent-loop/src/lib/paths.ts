@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+// Read once at import time; check/selftest.ts overrides it in a child process.
 export const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? path.join(REPO_ROOT, "workspace");
 export const WORKSPACE_SRC = path.join(WORKSPACE_DIR, "src");
 export const DATA_DIR = path.join(REPO_ROOT, "data");

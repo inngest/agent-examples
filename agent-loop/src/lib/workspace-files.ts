@@ -1,6 +1,6 @@
 // The package.json / tsconfig.json every workspace carries. Shared by
-// scripts/reset-workspace.ts (local git workspace) and the in-memory
-// typecheck (sandbox backend) so both typecheck under identical settings.
+// reset-workspace.ts (local git workspace) and file-store.ts (temp dir for the
+// in-memory store's typecheck) so both typecheck under identical settings.
 export const WORKSPACE_PACKAGE_JSON =
   JSON.stringify({ name: "semver-port", version: "0.0.0", private: true, type: "module" }, null, 2) + "\n";
 

@@ -3,7 +3,7 @@ import { execa } from "execa";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { runCheck, scoreImpl, computeCheckVersion, TIMEOUT_MS } from "./run-check.js";
+import { scoreImpl, computeCheckVersion, TIMEOUT_MS } from "./run-check.js";
 import { CHECK_DIR, DATA_DIR } from "../src/lib/paths.js";
 
 const fx = (n: string) => path.join(CHECK_DIR, "fixtures", n);
@@ -91,7 +91,14 @@ async function main() {
     else process.env.WORKSPACE_DIR = savedEnv;
     fs.rmSync(repo, { recursive: true, force: true });
   }
-  void runCheck;
+
+  // The spec shown to agents (pnpm spec:gen) must document the same x/mod
+  // version that generated the cases, and golden/go.mod must still pin it.
+  const casesVersion = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "meta.json"), "utf8")).xModVersion;
+  const specVersion = fs.readFileSync(path.join(DATA_DIR, "spec.txt"), "utf8").split("\n")[0]!.split(" ")[1];
+  const goMod = fs.readFileSync(path.join(DATA_DIR, "..", "golden", "go.mod"), "utf8");
+  ok(specVersion === casesVersion, `spec.txt documents x/mod ${specVersion}, cases generated with ${casesVersion}`);
+  ok(goMod.includes(`golang.org/x/mod ${casesVersion}`), `golden/go.mod pins x/mod ${casesVersion}`);
 
   console.log(failures === 0 ? "\nselftest: all green" : `\nselftest: ${failures} FAILED`);
   process.exit(failures === 0 ? 0 : 1);

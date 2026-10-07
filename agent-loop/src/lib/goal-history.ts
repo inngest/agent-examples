@@ -2,6 +2,7 @@
 // Realtime has no history, so the watcher starts from this and then applies
 // live messages on top (src/inngest/channel.ts).
 import type { AttemptOutcome, ScoredMessage } from "../inngest/channel.js";
+import { GOAL_DEFAULTS } from "../inngest/events.js";
 
 type ApiEvent = { name: string; received_at: string; data: Record<string, any> };
 
@@ -26,7 +27,7 @@ export type GoalHistory = {
 };
 
 // Same reading as the SDK: INNGEST_DEV=0 / false means Cloud, a URL is a dev server.
-export function apiTarget(): { base: string; headers: Record<string, string> } {
+function apiTarget(): { base: string; headers: Record<string, string> } {
   const dev = (process.env.INNGEST_DEV ?? "").trim();
   if (dev !== "" && dev !== "0" && dev.toLowerCase() !== "false") {
     return { base: dev.startsWith("http") ? dev.replace(/\/$/, "") : "http://localhost:8288", headers: {} };
@@ -37,8 +38,8 @@ export function apiTarget(): { base: string; headers: Record<string, string> } {
 }
 
 // How far back to look for a goal's start. Without an explicit received_after
-// the events API only returns recent events (about the last hour), so an
-// older goal's goal/started went missing. Matches the review wait (3d) + slack.
+// the events API only returns recent events (about the last hour). A week
+// covers the review wait (3 days) with room to spare.
 const LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Newest first, paging back with received_before until `after` (or `maxPages`).
@@ -62,6 +63,13 @@ async function fetchEvents(name: string, after = new Date(Date.now() - LOOKBACK_
 
 const byTime = (a: ApiEvent, b: ApiEvent) => a.received_at.localeCompare(b.received_at);
 
+// The loop's keep/revert verdict, from a scored event and the best so far
+// (lower score is better). No turns and no cost means the attempt never ran.
+function outcomeOf(d: ApiEvent["data"], best: number): AttemptOutcome {
+  if (!d.changed) return d.turns === 0 && d.costUsd === 0 ? "failed" : "unchanged";
+  return d.score < best ? "kept" : "reverted";
+}
+
 export async function loadGoalHistory(goalId: string): Promise<GoalHistory> {
   const forGoal = (es: ApiEvent[]) => es.filter((e) => e.data?.goalId === goalId).sort(byTime);
 
@@ -76,7 +84,7 @@ export async function loadGoalHistory(goalId: string): Promise<GoalHistory> {
   ]);
 
   const maxStalls: number | undefined = started?.data.maxStalls;
-  const stallLimit = maxStalls ?? 5;
+  const stallLimit = maxStalls ?? GOAL_DEFAULTS.maxStalls;
 
   // One row per attempt (a re-sent event for the same i keeps the latest).
   const latest = new Map<number, ApiEvent>();
@@ -94,13 +102,7 @@ export async function loadGoalHistory(goalId: string): Promise<GoalHistory> {
   const rows: ScoredMessage[] = [];
   for (const e of ordered) {
     const d = e.data;
-    const outcome: AttemptOutcome = !d.changed
-      ? d.turns === 0 && d.costUsd === 0
-        ? "failed"
-        : "unchanged"
-      : d.score < best
-        ? "kept"
-        : "reverted";
+    const outcome = outcomeOf(d, best);
     if (outcome === "kept") {
       best = d.score;
       stalls = 0;
@@ -121,6 +123,8 @@ export async function loadGoalHistory(goalId: string): Promise<GoalHistory> {
       stalls,
       summary: d.summary,
     });
+    // At the stall limit the loop paused; the next review after this attempt
+    // resumed it. None yet means it is still waiting.
     if (stalls >= stallLimit) {
       const review = reviews.slice(r).find((x) => x.received_at > e.received_at);
       if (review) {

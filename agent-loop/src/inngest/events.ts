@@ -1,9 +1,15 @@
+// The events this app sends and receives:
+//   goal/started           goal:send / goal:watch -> starts a goal-loop run
+//   goal/review.submitted  goal:watch -> resumes a loop paused for review (step.waitForEvent)
+//   goal/attempt.scored    goal-loop, once per attempt
+//   goal/finished          goal-loop, once at the end
+// The last three are also how goal:watch rebuilds a goal's history (src/lib/goal-history.ts).
 import { eventType } from "inngest";
 import { z } from "zod";
 
 // v4 event schemas can't use transforms (input type must equal output type),
-// so .default() is not allowed here. Optional fields + the DEFAULTS below are
-// applied by the goal-loop function instead.
+// so .default() is not allowed here. The fields stay optional and goal-loop
+// applies these defaults.
 export const GOAL_DEFAULTS = {
   maxAttempts: 60,
   maxStalls: 5,
@@ -13,6 +19,8 @@ export const GOAL_DEFAULTS = {
 
 // Used when neither the event nor the MODEL env var names a model.
 export const DEFAULT_MODEL = "qwen/qwen3-coder-30b-a3b-instruct";
+
+// --- inbound: start and steer a goal ---
 
 export const goalStarted = eventType("goal/started", {
   schema: z.object({
@@ -35,6 +43,8 @@ export const goalReviewSubmitted = eventType("goal/review.submitted", {
     note: z.string().optional(),
   }),
 });
+
+// --- outbound: what the loop records ---
 
 export const goalAttemptScored = eventType("goal/attempt.scored", {
   schema: z.object({

@@ -49,11 +49,19 @@ goal/started
 | `golden/` | Go program that generates the ground-truth cases from the real `semver` package (`go run ./golden`, byte-identical on rerun). |
 | `data/` | The 22,207 cases, split into **train** (17,752, what the loop scores against) and **holdout** (4,455, scored once at the end) by a hash of each case id. |
 | `check/` | The grader: runs a candidate `semver.ts` against the cases in a child process (`run-check.ts`, `runner.ts`, `score-core.ts`) or in a fresh [Inngest Sandbox](https://www.inngest.com/docs) (`run-check-sandbox.ts`), and builds the failure report the next attempt reads. Plus selftests. |
-| `src/inngest/goal-loop.ts` | The loop: baseline, invoke an attempt, check, keep or revert, pause for review, holdout, `goal/finished`. |
-| `src/inngest/agent-attempt.ts` | One attempt: model turns through `step.ai.infer`, each tool call its own step. |
+| `src/inngest/goal-loop.ts` | The loop: settings, baseline, then per attempt: invoke, check, keep or revert, pause for review; holdout, `goal/finished`. |
+| `src/inngest/agent-attempt.ts` | One attempt: prepare the workspace, build the brief, the turn loop (model call → history → tools, each tool call its own step), commit. |
 | `src/inngest/tools.ts` | The six tools and their guard rails. |
-| `src/inngest/channel.ts` | The Realtime channel the TUI subscribes to. |
-| `scripts/watch-goal.ts` | The TUI (`pnpm goal:watch`). |
+| `src/inngest/events.ts`, `channel.ts` | The events (`goal/*`) and the Realtime channel the TUI subscribes to. |
+| `src/lib/loop-state.ts` | What the loop carries between attempts, and the pure `afterAttempt` that updates it (outcome, journal, regressions, focus misses, stalls). |
+| `src/lib/prompt.ts` | The system prompt and `buildBrief`: everything the model is told. |
+| `src/lib/reasoning-ladder.ts` | What to send each turn (budget, reasoning) and how it steps down when a model thinks past it. |
+| `src/lib/history.ts` | What goes back into the message history (placeholders, repaired tool calls, nudges). |
+| `src/lib/model-call.ts` | The request body and the model call (`step.ai.wrap` or `step.ai.infer`). |
+| `src/lib/workspace.ts` | The code being edited, behind one interface: a local git repo or in-memory files (sandbox). |
+| `src/lib/openrouter.ts` | What a model can do on OpenRouter (tools, reasoning, limits, context window). |
+| `scripts/watch-goal.ts`, `scripts/watch/` | The TUI (`pnpm goal:watch`): wiring, state, rendering. |
+| `data/spec.txt`, `scripts/gen-spec.ts` | Go's documentation for the package (pinned `golang.org/x/mod` v0.21.0, the version that made the cases); `pnpm spec:gen` regenerates it. Not shown to agents yet. |
 | `workspace-template/` | The stub project each goal starts from. |
 
 ## Why it keeps going: the harness
@@ -304,7 +312,7 @@ suddenly gets worse.
 
 Any model on OpenRouter should run without per-model flags:
 
-- **Checked at goal start.** The `model-profile` step reads the model's
+- **Checked at goal start.** The `settings` step reads the model's
   OpenRouter listing. A slug that doesn't exist, or a model no provider serves
   with tools and `tool_choice`, fails the goal at once with a reason (the TUI
   shows it) instead of 20 failed attempts. `reasoning` is only sent when some

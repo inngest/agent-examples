@@ -1,22 +1,24 @@
-// One model turn as a call made by the worker (MODEL_CALL=worker, the
-// default), run inside step.ai.wrap so it still shows as an AI step in the
-// trace, with the request body as its input and the response as its output.
-// It goes through the OpenAI SDK (v6: @traceloop/instrumentation-openai only
-// patches >=4 <7) so that, with the `@inngest/otel/node` preload, the call
-// emits gen_ai.* spans and Inngest attaches `inngest.ai` metadata (model,
-// tokens, latency, cost) to the step automatically.
+// One model turn: the request body (buildRequest) and the call (callModel).
+//
+// MODEL_CALL=worker (the default) makes the call from the worker inside
+// step.ai.wrap, so it still shows as an AI step in the trace (request as
+// input, response as output). It goes through the OpenAI SDK (v6:
+// @traceloop/instrumentation-openai only patches >=4 <7) so that, with the
+// `@inngest/otel/node` preload, the call emits gen_ai.* spans and Inngest
+// attaches `inngest.ai` metadata (model, tokens, latency, cost) automatically.
 //
 // Why not step.ai.infer: infer makes the call from the Inngest server, which
-// is durable across worker restarts but opaque. A request that never came back
-// (local run 01M4BT2HCB099CWVKRZ6FY8774, turn-6 "running" for 8+ minutes)
-// had no timeout we controlled and nothing to log. Here the call has a
-// timeout, every failure is classified for retry, the worker logs each turn,
-// and the step also gets `model_call` metadata for what gen_ai doesn't carry
-// (OpenRouter's provider, finish reason, reasoning tokens, generation id, the
+// is durable across worker restarts but opaque: a request that never comes
+// back has no timeout we control and nothing to log (see BUILD_LOG). Here the
+// call has a timeout, every failure is classified for retry, the worker logs
+// each turn, and the step also gets `model_call` metadata for what gen_ai
+// doesn't carry (provider, finish reason, reasoning tokens, generation id, the
 // HTTP status of a failure). MODEL_CALL=inngest keeps infer.
-import { NonRetriableError } from "inngest";
+import { NonRetriableError, type GetStepTools } from "inngest";
 import OpenAI from "openai";
 import { inngest } from "../inngest/client.js";
+import { isOpenRouter, modelBaseUrl } from "./openrouter.js";
+import type { Reasoning } from "./reasoning-ladder.js";
 
 export type ChatResponse = {
   id?: string;
@@ -113,4 +115,57 @@ export function modelCaller(opts: { baseURL: string; apiKey?: string; label: str
     await trace(info);
     return json;
   };
+}
+
+/**
+ * The request body for one turn. Every turn must act through a tool
+ * (tool_choice "required"; finish_attempt is the only way out): small models
+ * otherwise drift into writing code as chat text.
+ */
+export function buildRequest(opts: {
+  model: string;
+  messages: unknown[];
+  tools: unknown[];
+  baseUrl: string;
+  maxTokens: number;
+  reasoning?: Reasoning;
+}): Record<string, unknown> {
+  // OpenRouter otherwise may route to a provider that silently ignores
+  // tool_choice, so only route to providers that honour every parameter.
+  // MODEL_PROVIDERS (comma-separated) pins a preference order, since the same
+  // model differs by provider; without it, take the fastest.
+  const preferred = (process.env.MODEL_PROVIDERS ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+  const providerRouting = preferred.length ? { order: preferred } : { sort: "throughput" };
+  return {
+    model: opts.model,
+    messages: opts.messages,
+    tools: opts.tools,
+    tool_choice: "required",
+    ...(isOpenRouter(opts.baseUrl) ? { provider: { require_parameters: true, ...providerRouting } } : {}),
+    ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
+    max_tokens: opts.maxTokens,
+  };
+}
+
+/** Where model calls go, from the worker's env. */
+export const modelEndpoint = () => ({
+  baseUrl: modelBaseUrl(),
+  apiKey: process.env.MODEL_API_KEY ?? process.env.OPENROUTER_API_KEY,
+});
+
+/**
+ * One model call as step `id`. Same step id either way, and both return the
+ * OpenAI response shape, so switching MODEL_CALL doesn't break replay of a run
+ * in flight.
+ */
+export async function callModel(
+  step: GetStepTools<typeof inngest>,
+  id: string,
+  body: Record<string, unknown>,
+  opts: { model: string; baseUrl: string; apiKey?: string; label: string; logger: Logger; timeoutMs: number },
+): Promise<ChatResponse> {
+  const { model, baseUrl, apiKey } = opts;
+  if (modelCallMode() === "worker")
+    return (await step.ai.wrap(id, modelCaller({ baseURL: baseUrl, apiKey, label: opts.label, logger: opts.logger, timeoutMs: opts.timeoutMs }), body)) as ChatResponse;
+  return (await step.ai.infer(id, { model: step.ai.models.openai({ model, baseUrl, apiKey }), body: body as never })) as ChatResponse;
 }

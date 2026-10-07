@@ -30,8 +30,8 @@ import type { Files } from "../src/lib/backend.js";
 export const SANDBOX_TIMEOUT_MS = 60_000;
 const WORKDIR = "/workspace";
 const VCPU = 1;
-// 512 and 256 always got 503 compute_unavailable (2026-10-07); 1024 starts in
-// ~1.5s. The runner's own heap is still capped at 256MB via NODE_OPTIONS.
+// Smaller sizes got 503 compute_unavailable (see BUILD_LOG). The runner's own
+// heap is still capped at 256MB via NODE_OPTIONS.
 const MEMORY_MB = 1024;
 // Wait-until-running cap for create (client hard max is 300s).
 const START_TIMEOUT = "120s";
@@ -40,9 +40,9 @@ const enc = new TextEncoder();
 
 type Sb = NonNullable<Awaited<ReturnType<typeof inngest.sandboxes.get>>>;
 
-// Upload, then verify the byte length landed by downloading it. SDK 4.18.1
-// threw after a successful upload (string bytesWritten); the check stays as a
-// cheap guard that also catches a short write.
+// Upload, then verify the byte length landed by downloading it. An upload
+// error is ignored because some SDK versions threw after a successful upload;
+// the download check is the real guard, and also catches a short write.
 async function upload(sb: Sb, file: string, data: string): Promise<void> {
   const p = `${WORKDIR}/${file}`;
   try {

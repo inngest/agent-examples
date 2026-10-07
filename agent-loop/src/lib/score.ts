@@ -5,10 +5,7 @@
 // attaches the same inngest.score metadata to that step, and the step output
 // carries the value too.
 import { inngest } from "../inngest/client.js";
-
-type RunStep = {
-  run: <T>(id: string, fn: () => Promise<T>) => Promise<unknown>;
-};
+import type { RunStep } from "./step-types.js";
 
 export async function recordScore(step: RunStep, id: string, name: string, value: number | boolean): Promise<void> {
   await step.run(id, async () => {

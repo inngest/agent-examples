@@ -17,9 +17,8 @@ export type Focus = { fn: string; failed: number; total: number };
 type ByFn = Record<string, { total: number; failed: number }>;
 
 // Functions that fail every case: still stubs, or broken outright. While any
-// remain, the attempt is told to implement them all at once (canon-5: with the
-// stub file in the brief, the model otherwise went one function per attempt
-// and started 0.5 behind a run that wrote the whole port in attempt 1).
+// remain, the attempt is told to implement them all at once; otherwise the
+// model goes one function per attempt (see BUILD_LOG: "Focus, second version").
 export function unimplemented(byFn: ByFn | undefined): string[] {
   return Object.entries(byFn ?? {})
     .filter(([, v]) => v.total > 0 && v.failed === v.total)
@@ -31,9 +30,7 @@ export function unimplemented(byFn: ByFn | undefined): string[] {
 // per function, the focused attempts that weren't kept. The least-missed
 // failing function goes next, the most-failing first among equals, so focus
 // moves on from a function it can't fix instead of going back to it after
-// every kept attempt (canon-5 focused Max, which sits on top of Compare and
-// the parser and always fails the most, 5 times in a row, all reverted).
-// Derived from loop state only, so replay picks the same one.
+// every kept attempt. Derived from loop state only, so replay picks the same one.
 export function pickFocus(byFn: ByFn | undefined, misses: Record<string, number>): Focus | undefined {
   if (unimplemented(byFn).length) return undefined;
   const failing = Object.entries(byFn ?? {})
@@ -100,7 +97,9 @@ function journalLine(e: JournalEntry): string {
   return `- #${e.i} ${what}${e.summary ? `: "${e.summary}"` : ""}${delta ? `; ${delta}` : ""}`;
 }
 
-export function buildBrief(opts: {
+// Everything the brief is built from: the attempt number, the best result so
+// far (and its report and example pool), and the attempt-to-attempt context.
+export type BriefInput = {
   i: number;
   best: { failed: number; total: number };
   humanNote?: string;
@@ -113,7 +112,9 @@ export function buildBrief(opts: {
   stubs?: string[];
   // Current source files (path relative to src/ → contents).
   code?: Record<string, string>;
-}): string {
+};
+
+export function buildBrief(opts: BriefInput): string {
   const { i, best, humanNote, report, examples, journal, regressions, focus, stubs, code } = opts;
   const parts = [
     "You're porting golang.org/x/mod/semver to TypeScript in src/semver.ts. Match the Go behavior exactly, including returning \"\" for invalid input instead of throwing. Make one focused change per attempt, guided by the check report below. You can't see or run the check, and it won't change during your attempt. If you believe the report shows the check is wrong, call finish_attempt and explain why in the summary instead of working around it.",
