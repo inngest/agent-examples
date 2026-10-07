@@ -23,7 +23,32 @@ const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_IT
 // only storage).
 type Best = CheckResult & { files?: Files };
 
-const check = (at: { commit: string; files?: Files }, set: CaseSet): Promise<CheckResult> =>
+type AttemptResult = {
+  commit: string;
+  changed: boolean;
+  files?: Files;
+  summary: string;
+  turns: number;
+  idleTurns: number;
+  tokens: { input: number; output: number };
+  finished: boolean;
+  costUsd: number;
+};
+
+const isAttemptResult = (x: unknown): x is AttemptResult => {
+  const a = x as Partial<AttemptResult> | null | undefined;
+  return (
+    typeof a === "object" &&
+    a !== null &&
+    typeof a.commit === "string" &&
+    typeof a.changed === "boolean" &&
+    typeof a.costUsd === "number" &&
+    typeof a.tokens?.input === "number" &&
+    typeof a.tokens?.output === "number"
+  );
+};
+
+const check = (at:{ commit: string; files?: Files }, set: CaseSet): Promise<CheckResult> =>
   backend() === "sandbox"
     ? runCheckSandbox({ files: at.files ?? {}, ref: at.commit, set })
     : runCheck({ commit: at.commit, set });
@@ -74,7 +99,20 @@ export const goalLoop = inngest.createFunction(
       // An attempt that exhausts its retries (provider outage, bad model output)
       // counts as a no-change stall rather than failing the whole goal. The
       // failure is memoized like any step result, so replay stays deterministic.
-      const attempt = await step
+      // A cancelled attempt doesn't reject the invoke: it resolves without an
+      // attempt result, so anything that isn't one is treated the same way.
+      const failedAttempt = (summary: string) => ({
+        commit: best.commit,
+        changed: false,
+        files: best.files,
+        summary,
+        turns: 0,
+        idleTurns: 0,
+        tokens: { input: 0, output: 0 },
+        finished: false,
+        costUsd: 0,
+      });
+      const invoked: unknown = await step
         .invoke(`attempt-${i}`, {
           function: agentAttempt,
           data: {
@@ -92,17 +130,8 @@ export const goalLoop = inngest.createFunction(
             reasoningMaxTokens,
           },
         })
-        .catch(() => ({
-          commit: best.commit,
-          changed: false,
-          files: best.files,
-          summary: "attempt failed",
-          turns: 0,
-          idleTurns: 0,
-          tokens: { input: 0, output: 0 },
-          finished: false,
-          costUsd: 0,
-        }));
+        .catch(() => failedAttempt("attempt failed"));
+      const attempt = isAttemptResult(invoked) ? invoked : failedAttempt("attempt cancelled or returned no result");
 
       totalCostUsd += attempt.costUsd;
       totalTokens.input += attempt.tokens.input;
