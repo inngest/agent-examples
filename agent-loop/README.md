@@ -71,10 +71,16 @@ starting over. On top of that, each misbehaviour we hit has a specific answer:
 | writes an empty file, or an edit that changes nothing | gets an error back from the tool instead |
 | gets cut off mid tool call | gets a "not valid JSON" tool result; the broken arguments are kept out of the history so the provider doesn't reject the next request |
 | stalls `maxStalls` times in a row | parks the goal on `step.waitForEvent` (up to 3 days) until a human sends a note, which goes into every later attempt's brief |
-| keeps failing the same way, or the attempt crashes / is cancelled | counts as a stall; the goal never fails because of one attempt |
+| retries an approach that already failed | sees a journal of the last 5 attempts in its brief: each one's own summary, outcome and per-function change in failing cases |
+| breaks cases that used to pass | is reverted, and the next brief lists the cases that attempt broke ("keep these passing") |
+| stares at the same examples every attempt | gets a different window of 10 failing examples each attempt, rotating through a pool of 60 |
+| crashes, or the attempt is cancelled | counts as a stall; the goal never fails because of one attempt |
 
 The check itself is out of reach: attempts see only its report (failures by
-function plus the shortest failing examples), never the cases. The holdout set
+function plus a capped sample of failing examples), never the case files.
+Everything carried from one attempt to the next comes from that train check
+and the attempts' own summaries, so the context gets more useful without
+showing any more of the train set than the report does, and none of the holdout. The holdout set
 is scored once, on the final best, so overfitting to the train report shows up
 as a gap between the two numbers.
 
@@ -141,10 +147,10 @@ goal-loop canon-3  Inngest Cloud  nvidia/nemotron-3.5-lightning  attempt 22/60  
   #20 kept        5987/17752 failing  0.337       -6  turns 4 idle 3  $0.0098
   #21 reverted    6029/17752 failing  0.340      +42  turns 8 idle 2  $0.0123
 
-attempt 22 running 1m12s
-  t1  1 tool call  182 tok
+attempt 22 running 1m12s · Phala  context █░░░░░░░░░░░ 9.0k / 262k (3%)
+  t1  1 tool call  in 1.6k · out 182
   t1.1 read_file      // Port of golang.org/x/mod/semver. Match the Go behavior exactly…
-  t2  1 tool call  1277 tok
+  t2  1 tool call  in 4.2k · out 1.3k
   t2.1 edit_file      edited semver.ts (2494 bytes) typecheck: ok
 q quit
 ```
@@ -160,9 +166,15 @@ What's on screen:
   visible; an attempt far below it (a broken edit) shows as a dot on the floor.
 - **Table:** the last attempts with failing cases, Δ failing cases against the
   best before that attempt, turns, idle turns and cost.
-- **Live pane:** the attempt in flight, one line per model turn (tool calls,
+- **Live pane:** the attempt in flight, with the provider that served it and a
+  **context meter** (the latest turn's prompt plus output against that
+  provider's context window, from OpenRouter's endpoints API; yellow above 50%,
+  red above 80%). Then one line per model turn (tool calls, input and output
   tokens, or `no tool call (cut off at the token limit)`) and per tool call
-  (name and result; errors in red). `finish refused` marks a refused early finish.
+  (name and result; errors in red). `finish refused` marks a refused early
+  finish. Finished attempts show their peak context in the table (`ctx 4%`).
+  Expect small numbers: every attempt starts from a fresh context, and what
+  carries over is the best code and the check report, not the conversation.
 
 ### Starting a goal
 
@@ -255,6 +267,8 @@ with the files carried in step state instead of a git repo.
 | `MODEL` | `qwen/qwen3-coder-30b-a3b-instruct` | default agent model |
 | `MODEL_PROVIDERS` | unset | OpenRouter providers to prefer, comma-separated, tried in order. Unset: the fastest provider that supports every parameter |
 | `MODEL_BASE_URL` | OpenRouter | any OpenAI-compatible endpoint |
+| `MODEL_CALL` | `worker` | `worker`: the worker makes each model call (OpenAI SDK inside `step.ai.wrap`), with a timeout, a log line per turn and per tool call, and trace metadata. `inngest`: `step.ai.infer`, made by Inngest (survives a worker restart; no timeout or logs of ours) |
+| `MODEL_TIMEOUT_MS` | 180000 | per-call timeout with `MODEL_CALL=worker`; a timed-out turn is retried by its step |
 | `INNGEST_DEV` | (unset = Cloud) | `1` for the dev server |
 | `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | | Cloud only |
 | `WORKSPACE_BACKEND` | `local` | `local` (git repo in `workspace/`, check in a child process) or `sandbox` (Cloud only) |
@@ -296,6 +310,25 @@ Answering a review without the TUI:
 curl -s -X POST localhost:8288/e/test -H 'content-type: application/json' \
   -d '{"name":"goal/review.submitted","data":{"goalId":"my-goal","action":"continue","note":"..."}}'
 ```
+
+## Seeing what a turn did
+
+Every model turn is an AI step (`turn-N`) in the Inngest trace, with the
+request as its input and the response as its output. With `MODEL_CALL=worker`:
+
+- **`inngest.ai` metadata** (model, input/output tokens, latency, cost) comes
+  from OpenTelemetry: the worker starts with `--import @inngest/otel/node`
+  (in `pnpm dev`, `pnpm start`, `pnpm start:worker` and the Dockerfile), which
+  instruments the OpenAI SDK so each call emits `gen_ai.*` spans. The
+  instrumentation patches `openai` `>=4 <7` only, so `openai` is pinned to v6.
+- **`model_call` metadata** adds what `gen_ai` doesn't carry: OpenRouter's
+  provider, finish reason, reasoning tokens, generation id, and the HTTP status
+  and error of a failed call (`inngest.metadata`, via `metadataMiddleware()`).
+- **Worker logs**, one line per call and per tool call:
+  `[goal #5 turn-6] model call ok in 2310ms · Phala · tool_calls · 1 tool calls · in 9012 / out 341 (reasoning 120) · gen-…`
+
+A failed call is classified for retry: timeouts, 408, 429 and 5xx are retried
+by the step; any other 4xx is non-retriable (the request itself is wrong).
 
 ## Limits and gotchas
 

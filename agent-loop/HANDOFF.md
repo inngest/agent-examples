@@ -61,7 +61,7 @@ Gotchas:
 - Use GraphQL (`/v0/gql`, `runTrace`) for run status, not REST `/v1/events/{id}/runs`, which reported runs `Completed` while they were still running.
 - `pnpm inngest` calls the native binary directly, because pnpm's JS shim for `inngest-cli` breaks.
 - `tsx watch` does not respawn a worker that died from SIGKILL, and neither `touch` nor a real source edit woke it. Ctrl-C and rerun `pnpm dev`.
-- `step.ai.infer` runs the model call on the Inngest server: a turn in flight finishes even while the worker is dead.
+- Model calls run on the worker by default (`MODEL_CALL=worker`: OpenAI SDK in `step.ai.wrap`, 180s timeout, per-turn logs, `inngest.ai` + `model_call` trace metadata via the `@inngest/otel/node` preload). `MODEL_CALL=inngest` is `step.ai.infer`: the call runs on the Inngest server, finishes even while the worker is dead, but can hang with no timeout (01M4BT2HCB099CWVKRZ6FY8774) and logs nothing.
 - On Cloud, a slow turn looks like a hang: `step.ai.infer` shows attempt 0 running with no error. Check provider throughput (OpenRouter routing) before suspecting Inngest; the harness now sends `provider.sort: "throughput"`.
 - Cancelling an `agent-attempt` run from the dashboard counts as a stall (3d8fdb7); before that fix it crashed goal-loop.
 
@@ -93,6 +93,8 @@ Gotchas:
 - The model rarely calls `finish_attempt`, so most attempts use all 8 turns. Harmless, because the commit step saves the work either way.
 - When nemotron does call `finish_attempt`, it's often before it has edited anything (a plan, not a change). Since 294e805 that finish is refused up to 2× per attempt (`EMPTY_FINISH_REFUSAL`). In canon-3 it took the run from 0 of 10 attempts improving to 4 of 6.
 - A tool call cut off mid-arguments (`finish_reason: length`) used to be echoed back into the history, and the providers then rejected the next turn with 400 `function.arguments must be a valid JSON object` (non-retriable) → the attempt failed (canon-3 attempt 18). The history now gets `{}` for invalid arguments; the tool still answers "not valid JSON".
+- Attempts carry context forward (journal of the last 5, regressions of the last reverted attempt, rotating example windows); see README "Why it keeps going" and BUILD_LOG. Not yet measured against the old brief.
+- Reasoning: `REASONING_EFFORT` / `REASONING_MAX_TOKENS` on the worker, or `--reasoning-effort` / `--reasoning-max-tokens` per goal. Phala already reasons and stops at ~2,001 reasoning tokens on ≥10% of turns; raise `--max-tokens` with it (reasoning counts against it).
 - Sessions: `goal:send` tags `meta.sessions.goal_id`, which propagates to the invoked attempts (dashboard: AI > Sessions). The REST API doesn't return `meta`.
 - The sandbox grader uploads every workspace file under `src/` (8bac4a5). Relative imports must use `.ts` specifiers; the in-memory typecheck rejects `./x.js`. Verified in a real sandbox.
 - Durability limit: a worker outage longer than the retry window of the function that must run next fails the run (agent-attempt `retries: 2` ≈ 1 min; goal-loop default ≈ 4.5 min). State survives, but the run doesn't. Kept deliberately as a post finding.
