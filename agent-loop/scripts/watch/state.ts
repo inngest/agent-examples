@@ -95,7 +95,7 @@ export function applyLoop(s: WatchState, m: LoopMessage): "show-review" | "hide-
       s.rows.clear();
       s.finished = undefined;
       s.waiting = false;
-      return;
+      return "hide-review";
     case "attempt.scored":
       s.rows.set(m.i, m);
       if (s.current?.i === m.i) s.current = undefined;

@@ -388,3 +388,17 @@
 - The goal flags had grown to ten. `s` now opens a "Start a goal" form (`scripts/watch/start-form.ts`, a small custom component: pi-tui's SettingsList only cycles forward and doesn't mix a text field with toggles): goal id, model, attempts, stalls, tokens per turn, reasoning, focus, Go docs, examples. Flags still work and become the starting values; `--start` skips the form; with no `--goal` the form opens at launch.
 - Starting under a different id switches the view: `watch(id)` closes the subscription, resets the state, loads that goal's history and subscribes; a generation counter drops callbacks from the goal it switched away from.
 - Tested in a pty: editing, cycling, Ctrl+U, Esc then `q`; and on the dev server, starting `form-e2e-1` from the form while watching another goal (switched, sent `goal/started`, baseline scoring shown).
+
+### `--spec` in the wild, and the final pass (2026-10-07 21:42 → 2026-10-08)
+
+- Not the planned canon-13 trio (never started); two goals with `--spec` on 3716f36:
+  - **qwen-test** (qwen/qwen3.8-27b, `--spec`, 20,000 tok/turn): attempt 1 → 415/17,752 failing (0.023); attempt 2 → **0** ("nextNum rejects zero-length number runs" fixed Sort). **Solved in 2 attempts, $0.53**, against 13 attempts and $0.85 for canon-12 without the spec.
+  - **cloud-test-1** (nemotron, `--spec`, 4,000 tok/turn): attempt 1 → **0.242**, against 0.41–0.47 for nemotron's attempt 1 without it (live-4, canon-6, canon-6-nofocus, refactor-e2e-1); then 5 attempts without progress (one wrote a broken module, 17,752 failing), parked for review.
+  - Uncontrolled (one run each, different days of routing), but the direction is clear and large: the documentation the cases came from is the most useful thing the brief can carry.
+- Final pass fixes (small behavior changes, found during the simplification):
+  - An attempt is "failed" only when goal-loop marks it so (`failed: true` on the stand-in for a failed or cancelled invoke), no longer inferred from 0 turns and $0 (an attempt that ran under MODEL_CALL=inngest may report no cost).
+  - `isAttemptResult` also checks `summary`, `turns`, `idleTurns`.
+  - Step budget counts a rebaseline: 10 per iteration, so `MAX_ATTEMPTS_CAP` 110 → 99.
+  - TUI: a goal restarted elsewhere while the review editor is up closes the editor.
+  - trace-dump.py no longer crashes on a non-dict tool output.
+- Checks: typecheck, `check:harness` (all pass, +1 case), `check:tools` 45, `check:selftest` green; default brief byte-identical to the snapshot taken before the simplification.

@@ -71,6 +71,8 @@ export type AttemptResult = {
   costUsd: number;
   // Set when the attempt's reasoning ladder had to climb and the model then acted.
   learned?: Learned;
+  // Set by goal-loop when the attempt failed or was cancelled (no real result).
+  failed?: boolean;
 };
 
 // A cancelled attempt resolves its invoke without a result, so goal-loop checks.
@@ -81,6 +83,9 @@ export const isAttemptResult = (x: unknown): x is AttemptResult => {
     a !== null &&
     typeof a.commit === "string" &&
     typeof a.changed === "boolean" &&
+    typeof a.summary === "string" &&
+    typeof a.turns === "number" &&
+    typeof a.idleTurns === "number" &&
     typeof a.costUsd === "number" &&
     typeof a.tokens?.input === "number" &&
     typeof a.tokens?.output === "number"

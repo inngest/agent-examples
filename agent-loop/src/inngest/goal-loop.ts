@@ -21,15 +21,14 @@ import { excerpt } from "./channel.js";
 // Inngest caps a run at 1000 steps (platform limit; the SDK itself doesn't
 // enforce it). An iteration takes 4 steps when the attempt changed nothing
 // (invoke, scored event, score, live publish), 5-6 when it did (+ check,
-// + revert unless kept), and 3 more when it ends in a review wait (live,
-// wait, live): at most 9, which is the budget. A rebaseline adds one only in
-// an iteration where the check itself changed mid-run; the reserve (7 steps:
-// settings, baseline, live-started, holdout, score-holdout, finished,
-// live-finished) leaves room for a few.
+// + revert unless kept, + rebaseline if the check itself changed mid-run),
+// and 3 more when it ends in a review wait (live, wait, live): at most 10.
+// The reserve covers settings, baseline, live-started, holdout,
+// score-holdout, finished and live-finished.
 const STEP_LIMIT = 1000;
-const STEPS_PER_ITERATION = 9;
+const STEPS_PER_ITERATION = 10;
 const RESERVED_STEPS = 10;
-const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_ITERATION); // 110
+const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_ITERATION); // 99
 
 // `against`: the best result's failBits, so the check reports the cases this
 // attempt broke (train only).

@@ -1,6 +1,12 @@
-# Handoff: goal-loop status (2026-10-07, updated 17:00 UTC)
+# Handoff: goal-loop status (updated 2026-10-08)
 
 How to pick this work up on another machine. `BUILD_LOG.md` is the detailed history and the source for the blog post. This file covers where things stand and what to do next.
+
+## Where it stands
+
+- **Solved.** qwen/qwen3.8-27b took the port from stubs to 0/17,752 train and 0/4,455 holdout failing: canon-12 in 13 attempts ($0.85), and qwen-test with `--spec` in 2 attempts ($0.53). nemotron-3.5-lightning plateaus around 0.24–0.35 with the same harness (~$0.07 a goal).
+- The harness was simplified for readers (8aaa679; see README "What's in here") with byte-identical prompts; `pnpm check:harness`, `check:tools`, `check:selftest` cover it.
+- Next: a controlled nemotron comparison of the brief options (control, `--spec`, `--examples 40`, both), all started together on one deploy and left to finish; the canon-13 trio was planned but not run.
 
 ## What this is
 
@@ -96,7 +102,7 @@ Gotchas:
 - Attempts carry context forward (journal of the last 5, regressions of the last reverted attempt, rotating example windows); see README "Why it keeps going" and BUILD_LOG. Not yet measured against the old brief.
 - Unsticking (not yet measured): the brief inlines the current code; `edit_file` misses quote the closest lines; while any function fails every case the brief says to implement them all at once; after that each attempt focuses on one function (`pickFocus`: fewest unkept focused attempts, then most-failing; `--no-focus` to compare). canon-5 (first focus version) did worse than live-4; see BUILD_LOG.
 - Any OpenRouter model: the `settings` step at goal start (fail fast on no tools / unknown slug; no `reasoning` where unsupported; budget under max_completion_tokens); in-attempt reasoning ladder (nudge → 2× budget → reasoning off), learned by later attempts. See README "Trying another model".
-- Brief experiments (opt-in, per goal): `--spec` (Go docs from data/spec.txt, x/mod v0.21.0) and `--examples N` (focus function's own failing cases, up to 50 per function from the check). Default brief unchanged. Pair pending on nemotron.
+- Brief experiments (opt-in, per goal): `--spec` (Go docs from data/spec.txt, x/mod v0.21.0) and `--examples N` (focus function's own failing cases, up to 50 per function from the check). Default brief unchanged. Uncontrolled so far: qwen-test (`--spec`) solved in 2 attempts vs 13 without; cloud-test-1 (nemotron, `--spec`) scored 0.242 on attempt 1 vs ~0.41–0.47 without, then stalled. A controlled run is next.
 - Reasoning: `REASONING_EFFORT` / `REASONING_MAX_TOKENS` on the worker, or `--reasoning-effort` / `--reasoning-max-tokens` per goal. Phala already reasons and stops at ~2,001 reasoning tokens on ≥10% of turns; raise `--max-tokens` with it (reasoning counts against it).
 - Sessions: `goal:send` tags `meta.sessions.goal_id`, which propagates to the invoked attempts (dashboard: AI > Sessions). The REST API doesn't return `meta`.
 - The sandbox grader uploads every workspace file under `src/` (8bac4a5). Relative imports must use `.ts` specifiers; the in-memory typecheck rejects `./x.js`. Verified in a real sandbox.

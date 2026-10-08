@@ -52,10 +52,11 @@ export const failedAttempt = (best: Best, summary: string): AttemptResult => ({
   tokens: { input: 0, output: 0 },
   finished: false,
   costUsd: 0,
+  failed: true,
 });
 
 export function classify(attempt: AttemptResult, result: CheckResult, best: Best): AttemptOutcome {
-  if (!attempt.changed) return attempt.turns === 0 && attempt.costUsd === 0 ? "failed" : "unchanged";
+  if (!attempt.changed) return attempt.failed ? "failed" : "unchanged";
   return result.score < best.score ? "kept" : "reverted";
 }
 

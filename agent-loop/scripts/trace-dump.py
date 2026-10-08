@@ -51,7 +51,7 @@ for e in runs:
             m = o['choices'][0]['message']
             print(f"{name} {t} c={u.get('completion_tokens')} r={(u.get('completion_tokens_details') or {}).get('reasoning_tokens')} ${u.get('cost',0):.4f} fin={o['choices'][0].get('finish_reason')} calls={[c['function']['name'] for c in m.get('tool_calls') or []]}")
         elif name.startswith('tool'):
-            print(f"{name}: {str((o or {}).get('result',o))[:200]!r}")
+            print(f"{name}: {str((o.get('result', o) if isinstance(o, dict) else o))[:200]!r}")
         elif name.startswith(('check', 'baseline', 'rebaseline', 'holdout')):
             if isinstance(o, dict):
                 print(name, t, {k: o.get(k) for k in ('failed', 'total', 'score', 'checkVersion', 'commit')})

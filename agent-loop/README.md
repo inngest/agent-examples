@@ -395,7 +395,7 @@ by the step; any other 4xx is non-retriable (the request itself is wrong).
 
 ## Limits and gotchas
 
-- **Step limit.** Inngest caps a run at 1,000 steps, which caps a goal at 110
+- **Step limit.** Inngest caps a run at 1,000 steps, which caps a goal at 99
   attempts. Chaining runs past that isn't built.
 - **Outages longer than the retries.** State always survives a worker outage,
   but if the worker is gone longer than the retry window of the function that

@@ -4,7 +4,7 @@ import type { CheckResult } from "./types.js";
 import type { AttemptResult } from "../src/inngest/agent-attempt.js";
 import type { ChatResponse } from "../src/lib/model-call.js";
 import { ReasoningLadder, type LadderOptions } from "../src/lib/reasoning-ladder.js";
-import { afterAttempt, initialState, JOURNAL_SIZE, type LoopState } from "../src/lib/loop-state.js";
+import { afterAttempt, failedAttempt, initialState, JOURNAL_SIZE, type LoopState } from "../src/lib/loop-state.js";
 import { assistantMessage, cutOffThinking, idleNudge } from "../src/lib/history.js";
 import { buildBrief } from "../src/lib/prompt.js";
 
@@ -133,8 +133,10 @@ const s0: LoopState = initialState(check(40));
 
   const unchanged = afterAttempt(s0, { i: 2, attempt: attempt({ changed: false }), result: s0.best });
   ok(unchanged.outcome === "unchanged" && unchanged.state.journal[0]?.delta === undefined, "loop: no change → unchanged, no delta");
-  const failed = afterAttempt(s0, { i: 2, attempt: attempt({ changed: false, turns: 0, costUsd: 0 }), result: s0.best });
-  ok(failed.outcome === "failed" && failed.state.stalls === 1, "loop: no turns and no cost → failed, a stall");
+  const failed = afterAttempt(s0, { i: 2, attempt: failedAttempt(s0.best, "attempt failed"), result: s0.best });
+  ok(failed.outcome === "failed" && failed.state.stalls === 1, "loop: a failed attempt → failed, a stall");
+  const idleOnly = afterAttempt(s0, { i: 2, attempt: attempt({ changed: false, turns: 0, costUsd: 0 }), result: s0.best });
+  ok(idleOnly.outcome === "unchanged", "loop: an attempt that ran but reported no turns or cost is unchanged, not failed");
 
   let s = s0;
   for (let i = 1; i <= 7; i++) s = afterAttempt(s, { i, attempt: attempt({ changed: false }), result: s.best }).state;
