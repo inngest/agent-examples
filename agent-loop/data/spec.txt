@@ -1,0 +1,71 @@
+golang.org/x/mod/semver v0.21.0
+
+package semver // import "golang.org/x/mod/semver"
+
+Package semver implements comparison of semantic version strings. In this
+package, semantic version strings must begin with a leading "v", as in "v1.0.0".
+
+The general form of a semantic version string accepted by this package is
+
+    vMAJOR[.MINOR[.PATCH[-PRERELEASE][+BUILD]]]
+
+where square brackets indicate optional parts of the syntax; MAJOR, MINOR,
+and PATCH are decimal integers without extra leading zeros; PRERELEASE and BUILD
+are each a series of non-empty dot-separated identifiers using only alphanumeric
+characters and hyphens; and all-numeric PRERELEASE identifiers must not have
+leading zeros.
+
+This package follows Semantic Versioning 2.0.0 (see semver.org) with two
+exceptions. First, it requires the "v" prefix. Second, it recognizes vMAJOR and
+vMAJOR.MINOR (with no prerelease or build suffixes) as shorthands for vMAJOR.0.0
+and vMAJOR.MINOR.0.
+
+FUNCTIONS
+
+func Build(v string) string
+    Build returns the build suffix of the semantic version v. For example,
+    Build("v2.1.0+meta") == "+meta". If v is an invalid semantic version string,
+    Build returns the empty string.
+
+func Canonical(v string) string
+    Canonical returns the canonical formatting of the semantic version v.
+    It fills in any missing .MINOR or .PATCH and discards build metadata.
+    Two semantic versions compare equal only if their canonical formattings
+    are identical strings. The canonical invalid semantic version is the empty
+    string.
+
+func Compare(v, w string) int
+    Compare returns an integer comparing two versions according to semantic
+    version precedence. The result will be 0 if v == w, -1 if v < w, or +1 if v
+    > w.
+
+    An invalid semantic version string is considered less than a valid one.
+    All invalid semantic version strings compare equal to each other.
+
+func IsValid(v string) bool
+    IsValid reports whether v is a valid semantic version string.
+
+func Major(v string) string
+    Major returns the major version prefix of the semantic version v.
+    For example, Major("v2.1.0") == "v2". If v is an invalid semantic version
+    string, Major returns the empty string.
+
+func MajorMinor(v string) string
+    MajorMinor returns the major.minor version prefix of the semantic version v.
+    For example, MajorMinor("v2.1.0") == "v2.1". If v is an invalid semantic
+    version string, MajorMinor returns the empty string.
+
+func Max(v, w string) string
+    Max canonicalizes its arguments and then returns the version string that
+    compares greater.
+
+    Deprecated: use Compare instead. In most cases, returning a canonicalized
+    version is not expected or desired.
+
+func Prerelease(v string) string
+    Prerelease returns the prerelease suffix of the semantic version v.
+    For example, Prerelease("v2.1.0-pre+meta") == "-pre". If v is an invalid
+    semantic version string, Prerelease returns the empty string.
+
+func Sort(list []string)
+    Sort sorts a list of semantic version strings using ByVersion.

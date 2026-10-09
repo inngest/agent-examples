@@ -1,0 +1,418 @@
+# Build log
+
+## 2026-10-06
+
+- **Case ids must be content-derived.** First design thought: `c_<index>` ids. That would shift every id when the corpus changes, moving cases between train and holdout (holdout = fnv32(id) % 5 == 0) and leaking holdout into train. Ids are now `c_` + 12 hex of sha256(fn + NUL + JSON args); cases deduped by id, files sorted by id so output is byte-identical across runs (verified with shasum).
+- **Sort semantics.** x/mod v0.21.0 does have `semver.Sort`, but it sorts in place and returns nothing. The golden stores the sorted list as `expected`; runner passes a copy and uses the return value if it is an array, else the mutated copy. Go's Sort orders invalid versions before valid ones and breaks precedence ties by raw string, so build-metadata-only differences and duplicates are covered by the Sort cases.
+- **tsx CLI leaks the child on timeout.** `execa(tsx ...)` with a timeout kills only the tsx wrapper; its grandchild node process (the actual runner) keeps spinning at 100% CPU on `while(true){}`. The grader therefore runs `node --import tsx check/runner.ts` (single process, SIGKILL on timeout). Deviation from "execa the tsx binary".
+- **`console.log`-style stdout is unsafe for partial progress.** Runner writes each result with `fs.writeSync(1, ...)` (retrying on EAGAIN) so results survive a SIGKILL mid-run.
+- **`pnpm <script>` is blocked by the scaffold.** `pnpm-workspace.yaml` has placeholder `allowBuilds` values (`esbuild`, `inngest-cli`, `protobufjs`: "set this to true or false"), so pnpm's pre-run deps check fails with ERR_PNPM_IGNORED_BUILDS. Fixed by setting esbuild/inngest-cli true, protobufjs false.
+- **-0 handling.** Comparison is type-strict (typeof must match, NaN/Infinity fail) and then JSON-equal, so `-0` is accepted for `0` (JSON.stringify(-0) is "0"). Deliberate: penalising `a - b` style results would be noise.
+- **Corpus size.** 22,207 cases, slightly above the 10-20k target; left as is (a train check takes well under a second).
+- No selftest failures were hit before fixing; the only fix was error messages showing JSON quotes (`threw: "not implemented"`), now plain.
+- **step.ai.infer offloads the model call.** With `step.ai.infer`, the Inngest executor (dev server or Cloud) makes the HTTP request to the model endpoint, not the worker, so the API key rides in the step payload and the endpoint must be reachable from Inngest. Used the chat-completions `openai` adapter (marked deprecated in favour of `openaiResponses`, but OpenRouter speaks chat-completions).
+- **v4 eventType rejects zod `.default()`.** Input and output types must match, so `maxAttempts`/`maxStalls`/`maxTurnsPerAttempt` are optional in the schema and defaulted in the function (`GOAL_DEFAULTS`).
+- **Failed attempts are stalls, not run failures.** If `agent-attempt` exhausts retries, the parent catches the invoke error and treats it as a no-change attempt. The caught failure is memoized, so replay stays deterministic.
+- **inngest-cli bin shim breaks under pnpm.** `pnpm inngest` ran `node_modules/.bin/inngest-cli`, which pnpm wraps as a Node script, but the postinstall had replaced `bin/inngest` with the native Mach-O binary → `SyntaxError: Invalid or unexpected token`. The script now calls `node_modules/inngest-cli/bin/inngest dev` directly.
+
+### First live run: `smoke-1` (qwen/qwen3.8-27b via OpenRouter, maxAttempts 2)
+
+- **Sent** `goal/started` at ~23:53 UTC from curl against the dev server (`/e/test`). App synced with 2 functions (`goal-loop`, `agent-attempt`).
+- **Dev server REST lied to my watcher.** `GET /v1/events/{id}/runs` reported the parent run `Completed` with `output: null` within seconds, while GraphQL (`runs`, `runTrace`) showed both the parent and the invoked `agent-attempt` still `RUNNING`. Anything polling run status should use GraphQL / the trace, not that REST field.
+- **Tool calling through `step.ai.infer` works.** Trace shows `prepare` → `turn-1` (AI_GATEWAY step) → `tool-1-1` → `turn-2` → `tool-2-1` → `turn-3`. The model's opening moves were sensible: `list_files()` → `semver.ts`, then `read_file("semver.ts")`.
+- **Turns are cheap, writes are slow.** Turn 1: 1,148 prompt / 28 completion tokens (12 reasoning), $0.00015. Turn 2: 1,232 / 45 (17 reasoning), $0.00023. OpenRouter returns exact `usage.cost` per call, so cost numbers for the post can be summed from the trace rather than estimated. Turn 3 (presumably writing the whole port) took noticeably longer: a thinking model emitting a full file.
+- **Attempt 1 turn-by-turn** (times UTC, tokens prompt/completion/reasoning, OpenRouter cost):
+
+  | turn | start → end | tokens | cost | action |
+  |---|---|---|---|---|
+  | 1 | 23:53:44 → :45 (1s) | 1148 / 28 / 12 | $0.0001 | `list_files` |
+  | 2 | 23:53:45 → :47 (2s) | 1232 / 45 / 17 | $0.0002 | `read_file("semver.ts")` |
+  | 3 | 23:53:47 → 23:54:43 (56s) | 1547 / 3689 / 1102 | $0.0161 | `write_file` 7,559 B ("I'll implement the full port… then typecheck") |
+  | 4 | 23:54:43 → 23:55:21 (38s) | 4161 / 2764 / 66 | $0.0121 | `write_file` 7,991 B ("I accidentally mixed Go syntax into that file") |
+  | 5 | 23:55:21 → 23:57:34 (2m13s) | 6887 / 9904 / 9904 | $0.0432 | `write_file` 7,702 B (no visible text, all reasoning) |
+  | 6 | 23:57:34 → 00:10:26 (12m52s) | 9547 / 57104 / 53490 | $0.2486 | `write_file` 10,030 B ("The file I wrote earlier was a broken mix — I'm going to completely rewrite it") |
+  | 7 | 00:10:26 → running | | | |
+
+- **Observed agent behavior:** it said it would typecheck and never called `typecheck()`. Every turn after the first read was a full-file rewrite rather than a focused edit, it never called `finish_attempt`, and reasoning tokens grew with each rewrite (12 → 1.1k → 9.9k → 53k). One 13-minute turn cost 15× the rest of the attempt combined. The brief's "one focused change per attempt" doesn't hold on attempt 1, because the starting point is nine stubs.
+- **Candidate fixes (not applied mid-run):** cap reasoning per turn (OpenRouter `reasoning.effort` or `max_tokens`); add an `edit_file`/str-replace tool so fixes don't need full rewrites; make `write_file` return typecheck errors automatically; have the commit step note when an attempt ended without `finish_attempt`.
+- **smoke-1 cancelled at ~00:20 UTC, during attempt 1 turn 7.** Before resetting, I scored the uncommitted `semver.ts` (10,030 B) by hand: **17,752 / 17,752 failing, score 1.0, the same as the stubs.** The file doesn't parse. The model wrote Go loop syntax in TypeScript (`for (i < v.length && isDigit(v[i]); i++) {`), and `tsc` reports 4 × `TS1005: ';' expected`. Turn 4 had said "I accidentally mixed Go syntax into that file", and two more full rewrites (~$0.29, ~15 min) still left it broken. It never ran `typecheck()`, which would have caught this in under a second. This is the strongest argument for the check: the agent's own sense of progress was worthless.
+- **Fixes applied after smoke-1** (in place for the canon run):
+  1. Per-turn reasoning cap: request body gets `reasoning: { effort }` (OpenRouter) + `max_tokens`. Defaults are `low` / 16,000, and both are overridable in `goal/started` (`reasoningEffort`, `maxTokensPerTurn`). If a turn hits the length limit with no tool call, the model gets a nudge to make a smaller edit.
+  2. `edit_file(path, old_string, new_string)`: an exact, unique-match find-and-replace behind the same path guard. Zero or multiple matches return an error to the model saying which.
+  3. Automatic typecheck: `write_file` and `edit_file` append `typecheck: ok` or the `tsc` errors (≤2KB) to their result, so typechecking no longer depends on the model choosing to.
+  4. Bookkeeping: each attempt returns `finished` (did it call `finish_attempt`) and `costUsd` (summed OpenRouter `usage.cost`). These go into `goal/attempt.scored`, and `goal/finished` carries total cost and tokens.
+  5. System prompt: prefer `edit_file`, read the typecheck errors, and call `finish_attempt` once the change typechecks. The brief text (`buildBrief`) is unchanged.
+- **canon-1 lost to my tooling, not to Inngest (~00:22 UTC).** I'd started the worker and the dev server as background shells with a 30-minute limit, and both were killed about 2 minutes into canon-1. The dev server had been started without `--persist`, so its in-memory state went too: all of smoke-1's run history and canon-1 itself. Worth one line in the post: durable execution is only as durable as the orchestrator's own storage. A dev server without `--persist` is a scratchpad, and Inngest Cloud is the real thing. Fix: `pnpm inngest` now runs `inngest dev --persist` (state in `.inngest/`, gitignored), and both processes run detached with `nohup`.
+
+### Canon run: `canon-2`
+
+- Sent at 00:23 UTC. qwen/qwen3.8-27b, all defaults: maxAttempts 60, maxStalls 5, maxTurnsPerAttempt 8, reasoningEffort low, maxTokensPerTurn 16,000. Workspace reset to stubs at `fe39655`.
+- **Baseline:** 17,752 / 17,752 failing (score 1.0), checkVersion `052e0be4bb9e`.
+- **Attempt 1 (00:23:30 → 00:29:07, 5m37s, $0.103, 28.1k input tokens): 17,752 → 4,764 failing (score 0.268).** Committed as `efb4eaa`, but the model never called `finish_attempt`, so the commit message is "(no finish_attempt after 8 turns)".
+
+  | turn | time | completion / reasoning | cost | action → result |
+  |---|---|---|---|---|
+  | 1 | 2s | 57 / 14 | $0.0003 | `list_files` + `read_file` (two calls in one turn) |
+  | 2 | **3m08s** | **16,000 / 16,000** | $0.0696 | no tool call: `finish_reason: length`, all reasoning |
+  | 3 | 66s | 2,549 / 255 | $0.0111 | `write_file` 6,691 B → 3 × `TS1110: Type expected` |
+  | 4 | 10s | 204 / 31 | $0.0010 | `edit_file` → 2 errors left |
+  | 5 | 5s | 166 / 17 | $0.0008 | `edit_file` → 1 error left |
+  | 6 | 4s | 156 / 15 | $0.0008 | `edit_file` → `typecheck: ok` |
+  | 7 | 10s | 483 / 255 | $0.0022 | `edit_file` (a refinement) → `typecheck: ok` |
+  | 8 | 51s | 5,523 / 5,398 | $0.0168 | `read_file`; out of turns |
+
+- **What the fixes did, attempt 1 vs smoke-1:**
+  - The auto-typecheck plus `edit_file` loop worked as intended. After the write came back with 3 type errors, the model fixed one per turn with 4–10s targeted edits until it was clean. In smoke-1 the same situation produced 13-minute full-file rewrites.
+  - The `max_tokens` cap and the length nudge also worked. Turn 2 burned the full 16k budget on reasoning with no tool call, the nudge fired, and turn 3 wrote the file.
+  - **`reasoning.effort: "low"` didn't hold.** Turn 2 still spent 16,000 reasoning tokens ($0.07, 3 minutes), more than half the attempt's cost. Either OpenRouter or this model doesn't honour effort well. `max_tokens` is the cap that actually bound.
+  - The model still didn't call `finish_attempt`, even after reaching `typecheck: ok` on turn 6. It kept refining and reading. A typechecking, scoring file got committed anyway because the commit step doesn't depend on the model finishing.
+- **Attempt 1 check report (what attempt 2 sees), worst function first:** Max 1926, Major 909, Canonical 634, Prerelease 388, Compare 265, Build 232, MajorMinor 154, IsValid 138, Sort 118. The examples point at the spec's own named edge cases: shorthand (`Canonical("v2")` expected `v2.0.0`, got `""`; `IsValid("v6")` got false), `Build("v3.0.0+7")` returned `7` instead of `+7`, and `Prerelease("v2.7.6--")` returned `-` instead of `--`. Most of the Max/Major/Compare failures probably trace back to shorthand parsing alone.
+- **Attempt 2 turn 3 hit a model-call failure, and Inngest retried it.** `turn-3` (a `step.ai.infer`) started at 00:35:28 and failed after ~5 minutes with `{"error":"Error making AI request"}`. The ~5-minute failure looks like a request timeout in the dev server's AI gateway on a long generation; I haven't confirmed that. Inngest retried with backoff: the second try failed at 00:51 and the third succeeded at 00:52:07 in 12s. No code handles this. It's plain step retries, and the attempt carried on from turn 4 with turns 1–2 memoized. Cost: ~16 minutes of wall-clock waiting, $0 of extra model spend visible on the successful call. Screenshot-worthy: the turn-3 span shows Attempt 0 FAILED, Attempt 1 FAILED, Attempt 2 COMPLETED.
+- **Tool steps now show the tool name in the trace** (00:53 UTC, mid-run): `step.run({ id: "tool-3-1", name: "tool-3-1: edit_file" }, …)`. In SDK v4, `id` is the memoization key and `name` is display-only, so this changed safely under the in-flight canon-2 run. Steps recorded before the change keep their old label.
+- **Attempt 2 (00:29:07 → 00:54:51, 25m44s incl. ~16 min of retry backoff, $0.097, 58.2k input tokens): 4,764 → 3,283 failing (score 0.268 → 0.185).** New best, committed `652db26`. Again no `finish_attempt`.
+  - Turn 2 ran into the 16k `max_tokens` limit partway through a `write_file` call. This time the tokens went into the tool arguments (reasoning was only 255), so the tool call arrived as truncated JSON. The tool executor returned `error: tool arguments were not valid JSON` instead of throwing, and the model rewrote the file on its next successful turn. Without the JSON guard this would have been a step failure.
+  - Turns 5–8 were small `edit_file`s, every one `typecheck: ok`, at 9–29s and $0.0015–0.005 each. This is the loop working as designed.
+  - **It overcorrected on shorthand.** Attempt 1's report hammered on `v2` → `v2.0.0`, and attempt 2 made shorthand parsing too permissive. It now accepts things Go rejects: shorthand with a prerelease or build (`Max("v1-pre", "")` expected `""`, got `v1.0.0-pre`; `Build("v5+19")` expected `""`), trailing junk (`IsValid("v2|")` → true), and leading zeros in shorthand (`MajorMinor("v05")` → `v5.0`). The net score still improved: Major 909→220, Max 1926→1329, Build 232→63. But Prerelease (388→480), IsValid (138→213) and MajorMinor (154→225) got worse. A focused change helped where the report pointed and regressed next to it, and only the full check shows both. This is a post beat.
+  - Report attempt 3 sees: Max 1329, Prerelease 480, Canonical 441, Compare 248, MajorMinor 225, Major 220, IsValid 213, Sort 64, Build 63.
+- **Attempt 3 (00:54:51 → 00:58:40, 3m49s, $0.043, 6 turns): 3,283 → 3,700 failing (score 0.185 → 0.208). Worse, so it was reverted.** This is the first revert of the run: `revert-3` reset the workspace to `652db26` in under a second, and the rejected commit `a47fdbd` is no longer on the branch (only in the reflog).
+  - **This was the first `finish_attempt` of the run**, and it came before the queued finish nudge was applied. Summary: "Fixed atoi to require the entire string to be numeric (matching Go's strconv.Atoi), and fixed Max to return "" when either argument is invalid (matching Go's behavior)."
+  - **The summary is confidently wrong about Go.** Go's `Max` treats an invalid version as lower than any valid one, so `Max("v0", "")` returns `v0.0.0`, not `""`. Max failures went 1,329 → 1,913. The atoi change helped elsewhere (Compare 248→214, IsValid 213→180, Major 220→193), but not enough to cover the Max regression. The agent's own account of its change ("matching Go's behavior") was wrong, the check caught it, and the loop threw the attempt away. In the post, the revert is the loop refusing to accept the agent's claim without checking it.
+  - Attempt 4 starts from `652db26` with attempt 2's report. Per the spec, an attempt always works from the best state's report, never the last attempt's.
+  - Turn 1 spent 6,350 reasoning tokens (2m16s) before its first `read_file`; turns 2–6 stayed at ≤255 reasoning tokens each.
+- **Attempt 4 (00:58:40 → 01:06:56, 8m16s, $0.124, 8 turns, no finish): 3,283 → 4,145 failing (score 0.233). Reverted to `652db26`.** Two stalls in a row now; the review pause triggers at 5.
+  - The same reasoning blowup came back. Turn 3 spent the whole 16,000-token cap on reasoning with no tool call ($0.070, 4m42s), and turn 4 spent another 12,578 reasoning tokens on a single `edit_file`. Those two turns were 88% of the attempt's cost. This is the case the queued `reasoning.max_tokens` budget is meant to stop.
+  - Turn 4's edit removed a helper still in use (`TS2304: Cannot find name 'atoi'`). The automatic typecheck caught it and turn 5 fixed it in 15s.
+  - It broke Compare: 248 → 1,127 failures (`Compare("", "v1")` expected -1, got 0, so invalid-vs-valid ordering was lost). That cancelled out real gains in IsValid (213→130), Major (220→144) and MajorMinor (225→154). This is the same pattern as attempt 3: a local improvement plus a regression somewhere the agent wasn't looking.
+- **Attempt 5 (01:06:56 → 01:07:25, 29s, $0.006): no change, stall #3.** The model called `read_file`, `list_files`, then `read_file` again, then `finish_attempt` with the summary "Let me analyze the failures before making changes." That's a plan, not a result: it gave up the attempt without editing anything. The commit step returned `changed: false` (best commit unchanged), and the loop counted it as a stall, as the spec says. Two small harness inefficiencies showed up: `check-5` re-scored a commit we'd already scored, and `revert-5` reset to the commit we were already on. Both are harmless and take under a second, but an unchanged attempt could skip both. This was also the first `finish_attempt` that ended an attempt early, and it ended a useless one. The queued finish nudge should only fire after a successful edit, so it shouldn't make this worse.
+- **Attempt 6 is stuck on slow model calls, not a bug (checked 01:38 UTC).** `turn-2` try 0 held its inference request open for **17 minutes** (01:07:44 → 01:24:52). It then failed with `error making inference request: Your server reset the connection while we were reading the reply: Unexpected ending response`, which is the upstream (OpenRouter or the provider) dropping a very long generation. The attempt-2 failure at 00:51 was the same error. Inngest's backoff then waited about 13 minutes, and try 1 started at 01:38:14. The worker is alive and the run is healthy. Wall-clock cost so far is ~30 minutes for one turn, versus 9–60s for normal turns.
+  - **Pattern across the run:** every turn that has failed or blown up was a turn where the model produced a huge reasoning stream (16k-token cap hits in attempts 1, 2 and 4, plus these two connection resets). When the model keeps its reasoning short (≤255 tokens), turns take seconds. The queued patch targets exactly this with an 8k `max_tokens` and a 2,048-token `reasoning.max_tokens` budget.
+  - **Observation for the post:** durable retries make this survivable without any code, because nothing is lost and turn 1 stays memoized. But retries don't make it cheap in time. When the failure mode is slowness, the fix is to bound the work (token budgets), not to retry harder.
+- **canon-2 cancelled at ~01:40 UTC during attempt 6** (turn-2 retry in flight). Final tally: 5 scored attempts, best **3,283 / 17,752 failing (score 0.185) at attempt 2**, then 3 non-improving attempts (two regressions reverted, one no-op), ~$0.38 of model spend, ~1h17m wall-clock of which ~45 min was spent on two upstream connection resets during runaway generations. Score curve: 1.000 → 0.268 → 0.185 → (0.208 reverted) → (0.233 reverted) → (0.185 no-op). This is the "before" run for the post.
+- **Queued harness fixes applied** (01:40 UTC): (1) after a clean auto-typecheck the tool result says "Typecheck passes. If this change addresses the check report, call finish_attempt now…", and the final turn gets an explicit "This is your last turn. Call finish_attempt now…"; (2) `maxTokensPerTurn` default 16k → 8k; (3) `reasoning: { max_tokens: 2048 }` (new `reasoningMaxTokens` goal option, clamped to half the turn budget) replaces `effort` by default; an explicitly set `reasoningEffort` still wins if no budget is given.
+
+## 2026-10-07
+
+### Sandbox backend (`WORKSPACE_BACKEND=sandbox`), for a Connect worker on Render against Inngest Cloud
+
+- **Design: the workspace is step state; only the grader is sandboxed.** Two constraints drove it. (1) A sandbox's `runningTimeout` is client-capped at 300s and an attempt (8 model turns) can run longer, so a sandbox can't hold the agent's session. (2) Only *executing* agent code is untrusted. Reading, editing and typechecking source never runs it. So: the agent's files are an in-memory map `{ "semver.ts": source }` seeded from `bestSource`; each tool step returns the changed file contents with its result string and the loop updates its map only from step return values (replay-safe); typecheck runs on the worker (map written to a fresh temp dir with the same package.json/tsconfig the reset script writes, then the project's tsc); only the check runs in a sandbox, a fresh one per check, destroyed in `finally`.
+- **Backend selection:** `WORKSPACE_BACKEND=local|sandbox`, default local, read at call time. The local path's behavior is unchanged: `executeTool` now takes a `FileStore` (`src/lib/file-store.ts`); the local fs store is the old realpath path guard verbatim and its step return value has no new fields.
+- **Sandbox-mode plumbing:** "commit" is `sha256(source)[:12]`, `changed = ref !== bestRef`; `prepare` just returns the seed; `revert-${i}` is skipped (every attempt is seeded from `best.source`, so state is best by construction); best carries `source`; baseline scores the stub from `workspace-template/src/semver.ts`. The invoke input has `bestSource`, the output has `source`.
+- **Grader** (`check/run-check-sandbox.ts`): create sandbox (1 vCPU, 512MB, 120s start wait), mkdir `/workspace`, upload runner.ts + semver.ts + the one case file for the requested set (holdout cases only for set=holdout) + a `{"type":"module"}` package.json, exec `node runner.ts semver.ts cases.jsonl > out.jsonl` (60s hard timeout), download `out.jsonl`, parse like the local path. Stdout goes to a file because exec output is tail-truncated at a cap and a train run is >1MB of JSONL; the file also keeps partial results if the exec times out. All in one `step.run` (`check-N`), so a retry just builds a new sandbox (random name suffix; destroy in finally). Uses `inngest.sandboxes` directly (the durable `step.sandbox` facade has no files API), so no `sandboxMiddleware` is needed.
+- **Shared result logic:** case loading, runner-output parsing, report building, sanitizing and `computeCheckVersion` moved to `check/score-core.ts`; both graders call `scoreFromRunnerOutput`. checkVersion now hashes run-check.ts, **score-core.ts**, runner.ts, types.ts and both case files. run-check-sandbox.ts is deliberately not hashed (transport only). Because run-check.ts changed, the local checkVersion differs from the canon runs' `052e0be4bb9e` (one-time). Local and sandbox versions are identical for identical inputs since both hash the same files on disk.
+- **runner.ts under plain node:** it only imports node builtins and uses no enums/namespaces/parameter properties, so it needed no change. Verified locally with `node --experimental-strip-types` (node 22.23) against the lookup fixture (17,752/17,752 pass) and the stub (17,752/17,752 fail). Not yet verified on the sandbox's node 26.
+- **SDK 4.18.1 sandbox workarounds, status on 4.21.1 (read from the installed client, not run live):**
+  - S1 (exec results omit empty stdout/stderr, client requires both): **fixed**, the schema now has both optional and decodes `?? ""`. The `wrap()` marker trick is not needed and was not carried over.
+  - S2 (`files.upload` throws after success on string `bytesWritten`): the schema is still `z.number()` (default 0), so a string would still throw. **Kept** as a cheap guard (catch, then verify by download size). Unknown whether the server still sends a string.
+  - S3 (`/workspace` missing, a cwd pointing at it 400s): server/image behavior, **kept** (mkdir with cwd `/` first).
+  - 300s `runningTimeout` cap: still enforced in validation (`maxSandboxRunningTimeoutMs`). It is the create wait-until-running cap.
+- **Not verified live:** `agent-loop/.env` has no INNGEST_SIGNING_KEY/INNGEST_EVENT_KEY (INNGEST_DEV=1), and the inngest-cloud MCP `create_sandbox` returned `403 access_denied: Sandbox access is not enabled for this account`. So `pnpm check:sandbox-smoke`, the image's node version/type stripping, and the S2 behavior are unproven. No docker on this machine, so the Dockerfile is also unbuilt.
+- **Known gaps:** the sandbox grader only gets `semver.ts`; a solution that imports another file the agent wrote would typecheck on the worker but fail to load in the sandbox (node type stripping also needs `.ts` import specifiers and rejects enums/namespaces, unlike tsx). `lookup-impl.ts` reads `../../data` at import time, so the smoke test inlines the train answers into it.
+
+### Model probe: `coder-probe-1` (qwen/qwen3-coder-30b-a3b-instruct, local backend, maxAttempts 10)
+
+- Started 01:47:45 UTC from fresh stubs after the queued fixes, `erasableSyntaxOnly`, and the sandbox-backend refactor. checkVersion is now `9ef47c667fd7` (the refactor moved check code into `score-core.ts`; cases unchanged).
+- **Attempt 1 (47s, $0.0019, 14.7k in / 3.3k out): 17,752 → 16,643 failing (score 0.938).** This is a very different model:
+  - No reasoning tokens at all, and turns took 1–22s. The whole attempt cost ~1/50th of a qwen3.8-27b attempt.
+  - **Weak tool discipline:** 5 of 8 turns ended with `finish_reason: stop` and no tool call. Turn 4 wrote 2,109 tokens of code as chat text instead of passing it to `write_file`. The "Use the tools…" nudge pulled it back once (turn 5's `edit_file`).
+  - It took "one focused change per attempt" literally. It implemented only `IsValid` (failures 1,643 → 534) and left the other eight stubs throwing. qwen3.8-27b wrote the whole port in attempt 1.
+  - The new finish nudge appeared in the tool result ("Typecheck passes. If this change addresses the check report, call finish_attempt now…"), and the model still didn't call `finish_attempt`.
+- **Score curve, attempts 1–9 (01:47:45 → 01:56:10, 8m25s, ~$0.024 total, ~$0.0027 and ~55s per attempt):** 1.000 → 0.938 → 0.655 → 0.400 → **0.343 (attempt 4, best)**, then five non-improving attempts: 5 tie (6,089, reverted), 6 no change, 7 no change, 8 worse (7,540, reverted), 9 tie (reverted). **The run parked on `review-9` (`WAIT_FOR_EVENT`) at 01:56:10.** This is milestone 6 happening naturally, with no forced `maxStalls: 1`.
+  - Root cause of the plateau, visible in every line of the best report: the port accepts versions **without the leading `v`**. `IsValid("4")` returns true, `Canonical("1")` returns `v1.0.0`, `Major("6")` returns `v6`, `Sort` misorders `4.2.5`. That's ~500 failures in each of IsValid, Major, MajorMinor, Canonical and Sort, plus most of Max and Compare. The model got 5 attempts with this report and never connected the examples to one rule.
+  - Never called `finish_attempt` in any of the 9 attempts, despite the clean-typecheck nudge and the last-turn message. Every attempt ran 8 turns.
+  - Comparison with canon-2 (qwen3.8-27b): canon-2 reached 0.185 in 2 attempts, but its attempts took 4–26 min and $0.04–0.12 each. The coder model is much weaker per attempt and ~40× cheaper, and its attempts are about a minute. A steady climb, then a plateau that needs a human, is the long-running-loop shape the post wants.
+- **Review sent at 01:56:37 UTC** (`goal/review.submitted`, action `continue`) with the note: *Go semver requires the leading "v". Inputs without it, like "1.2.3" or "4", are invalid: IsValid returns false and Canonical/Major/MajorMinor/Prerelease/Build return "". Most remaining failures in every function trace back to this one rule.* `maxAttempts` is 10, so attempt 10 is the only post-review attempt, then holdout and `goal/finished`.
+- **Attempt 10, after the review (01:56:37 → 01:57:21, 44s, $0.0021): 6,089 → 5,910 failing (score 0.333). New best, and the first `finish_attempt` of the probe.** The invoke payload for attempt 10 carries `humanNote` verbatim, so the note reached the brief. Its summary quotes the reviewer: "Fixed IsValid function to require leading "v" character as per Go semver specification, which was causing all other functions to fail due to incorrect validation."
+  - **The note helped less than it should have.** The model fixed the rule in `IsValid` only. The other functions do their own parsing, so they still accept `4` (each function dropped only ~40 failures). The summary claims more than the diff delivered, and again only the check shows that.
+- **Holdout and finish (01:57:21):** holdout **1,492 / 4,455 failing (score 0.335)** vs train 0.333. The scores are nearly identical, so no train/holdout gap: the agent isn't overfitting the examples it's shown, as expected since it only ever sees ≤10 example failures. `goal/finished` was emitted. The run returned `{ attempts: 10, best: 5,910/17,752, holdout: 1,492/4,455, costUsd: $0.0265, tokens: 222.8k in / 40.4k out }`.
+- **Milestones exercised end-to-end on the local backend in this probe:** 4 (loop to budget, with reverts), 6 (a natural stall → park → review note → resume, with the note in the next brief), and 8 (holdout + `goal/finished` with totals). Still not exercised: 5 (deliberate kill-and-resume) and 7 (check change mid-run → rebaseline).
+- **Model verdict:** qwen3-coder-30b-a3b-instruct fits the post. Ten attempts took 9.5 minutes and cost under 3¢, with a visible climb, a plateau, a human unblock, and an agent that over-claims. Its weakness is acting through tools: about half its turns end in chat text instead of a tool call. That's a harness lever worth considering (e.g. `tool_choice: "required"` with `finish_attempt` as the exit).
+
+### Forcing tool calls (02:00–02:06 UTC)
+
+- **`tool_choice: "required"` added to every turn.** coder-probe-2 (3 attempts) still had **12 of 24 turns end with `finish_reason: stop` and no tool call**, the same rate as without it. OpenRouter had routed to a provider that silently ignored the parameter. Results were still decent: attempt 1 jumped straight to 8,282 failing (0.467), attempts 2–3 called `finish_attempt`, attempt 3 tied and was reverted, holdout 0.464.
+- **Added OpenRouter `provider: { require_parameters: true }`** (only when the base URL is OpenRouter) so it routes only to providers that honour every parameter. coder-probe-3's first turn then failed with **`404 No endpoints found that can handle the requested parameters`**. We were always sending a `reasoning` field, and this non-thinking model supports none. Lenient routing had been silently dropping both `reasoning` and `tool_choice`. The attempt exhausted its retries, and the goal loop caught it and counted a stall (the crash-as-stall path, exercised for real).
+- **Fix: reasoning controls are now opt-in.** There's no default `reasoningEffort` / `reasoningMaxTokens`. The `reasoning` field is sent only when a goal sets one, which matters for thinking models like qwen3.8-27b.
+- **coder-probe-4 (2 attempts) with strict routing:** requests route fine, but **9 of 16 turns still ended without a tool call**. The strictly-routed providers accept `tool_choice: "required"` and still let this model stop without one. The harness can't force it any harder. The existing "Use the tools, then call finish_attempt." nudge absorbs it at the cost of a turn. Attempt 1 made no change (stall, reverted to stubs). Attempt 2 wrote the full port in one go: **17,752 → 7,087 (0.399)**, holdout 0.402, `finish_attempt` called.
+- For the thesis (the harness keeps going even when the model misbehaves), this is a good beat. The model ignores a hard API constraint about half the time, and the loop still makes progress.
+
+### Idle turns, no-op edits, MODEL env (02:10–02:13 UTC)
+
+- **Turns without a tool call no longer use up the turn budget.** `maxTurnsPerAttempt` now counts only turns that acted through a tool. Turns that end in chat text are counted separately (`idleTurns`, now in `goal/attempt.scored`) and capped at 4 per attempt, so a misbehaving model can't loop forever. Step ids still number every model call (`turn-N`), so they stay unique.
+- **idle-probe-1 (2 attempts):** 0 idle turns out of 13. This time the model used a tool on every turn, so the cap wasn't exercised. Whether `tool_choice` is honoured clearly varies by provider and by run (≈50% idle in coder-probe-2/4 an hour earlier). Attempt 1 wrote the full port in 5 turns and called `finish_attempt`: 17,752 → 7,094 (0.400). **Attempt 2 made 6 `edit_file` calls in a row that changed nothing** (the file stayed 4,042 bytes, every result `typecheck: ok`) and ran out of turns. It was a stall, reverted.
+- **`edit_file` now rejects no-op edits** (`new_string` identical to `old_string`) with an error, so the model hears that its edit did nothing instead of getting another "typecheck: ok".
+- **Model is an env var.** `goal/started.model` is optional. The worker falls back to `MODEL` env, then `DEFAULT_MODEL` (`qwen/qwen3-coder-30b-a3b-instruct`). The fallback runs inside a `resolve-model` step, so redeploying with a different `MODEL` can't change the model of an in-flight run. `pnpm goal:send` passes `--model` or `MODEL` from `.env` if set. `MODEL` was added to `.env.example` and the Render service. Verified with env-model-probe: `resolve-model` → `qwen/qwen3-coder-30b-a3b-instruct`, attempt 1 → 0.414, holdout 0.431.
+
+### Harness fixes: unchanged attempts, multi-file sandbox (2026-10-07, commit 8bac4a5)
+
+- **Unchanged attempts skip the check.** An attempt that changed nothing (or failed) no longer runs `check-i` + a no-op `revert-i`. It counts as a stall at best's score. `changed` is memoized from the invoke, so step ids stay deterministic. A check change in the meantime is picked up by the next attempt that does change something.
+- **Sandbox backend carries a file map**, not a single `semver.ts` source (`Best.files`, `bestFiles`, `filesRef` hashes every path + content). The sandbox grader uploads each file under `/workspace/src/` and runs `node runner.ts src/semver.ts`. Node type stripping resolves import specifiers literally, so the workspace tsconfig now allows `.ts` specifiers and the in-memory typecheck reports a relative `./x.js` import as an error (NodeNext tsc would accept it, then the sandbox would fail to load it). Selftests cover both. Still untested in a real sandbox.
+
+### Milestone 5, first try: kill the worker mid-attempt → the goal run died (kill-probe-1, 14:42 UTC)
+
+- Model `nvidia/nemotron-3.5-lightning` (from `.env` `MODEL`), local backend, `--max-attempts 4`. Strict routing fine: every turn was a tool call.
+- Attempt 1 (14:42:30 → 14:42:53, 23s): 17,752 → 15,758 failing (0.888), commit `72d42d1`, `finish_attempt` called.
+- **14:43:01: `kill -9` on the worker** (the node child of `tsx watch`), with attempt 2's turn 3 in flight.
+- **14:43:05: turn 3 completed anyway.** `step.ai.infer` runs the model call on the Inngest server, not the worker, so the model call outlived the worker. Its result is memoized.
+- 14:43:05 → 14:44:01: the next request to the worker (to run `tool-3-1: edit_file`) failed three times (`agent-attempt` has `retries: 2`): **attempt 2 FAILED** after 56s.
+- 14:44:01 → 14:48:41: goal-loop has to execute on the worker to handle the failed invoke (its `.catch` turns it into a stall). Those requests failed too until goal-loop's default retries ran out: **goal-loop FAILED at 14:48:41.**
+- 14:49:06: worker back (manual `pnpm dev` restart). 25s too late.
+- **Finding: the durability boundary is the function retry budget, not the step state.** All state survived (attempt 1's commit, memoized turns 1–3), but a worker outage longer than goal-loop's retry window (~4.5 min here) ends the goal. The attempt-level `.catch` → stall design only helps if the orchestrator itself is still alive to catch.
+- Gotcha: `tsx watch` does **not** respawn a child that died from SIGKILL, and `touch src/server.ts` didn't wake it either. A crashed worker needs a manual restart.
+
+### Milestone 5, second try: short outage → the attempt resumes (kill-probe-2, 14:50 UTC) ✅
+
+- Same setup and budgets (no harness change: the user chose to keep `retries` as is and log the boundary). Outage kept under the attempt's ~1 min retry window. Since `tsx watch` won't respawn a SIGKILLed child, a replacement worker was started with `nohup tsx src/server.ts` 15s after the kill.
+- Attempt 1 (14:50:33 → 14:50:48): 17,752 → 12,771 (0.719), `cd55e65`.
+- **14:50:51: `kill -9` on the worker**, attempt 2 at turn 3. Turn 3's `step.ai.infer` completed at 14:50:52 with no worker (same as kill-probe-1).
+- 14:51:06: worker back. The dev server's next retry reached it at 14:51:32 (the `Finalization` span 14:50:52 → 14:51:32 is the gap), and the run continued with `tool-3-1`. **Turns 1–3 appear once each in the trace: memoized, not re-run or re-billed.** Attempt 2 cost $0.0031 in total.
+- Workspace reflog: **one** `attempt 2:` commit (`ed69bf4`), then the normal revert to `cd55e65`. No duplicate commit from the replayed attempt.
+- Rest of the run: attempt 3 → 11,347 (0.639), attempt 4 → 7,903 (**0.445**, best), holdout 2,041 / 4,455 (0.458). `goal/finished` emitted, run COMPLETED at 14:53:25.
+- **Model behaviour (nemotron-3.5-lightning):** attempt 2 called `write_file` with **empty content** ("wrote 0 bytes to semver.ts", typecheck ok, because an empty module typechecks) and summarized "No changes made". It scored 1.0 and was reverted. Attempt 4 did the same mid-attempt, then rewrote the file. It also batches 4–6 tool calls per turn (list_files + read_file + edit_file + write_file + typecheck + finish_attempt in one turn), and two turns hit `finish_reason: length` at 8,000 tokens with no tool call. The check + revert absorbed all of it.
+- **Durability summary for the post:** step state always survives a dead worker, and the model call even finishes without one. Whether the *run* survives depends on the outage being shorter than the retry window of the function that has to run next.
+
+### Milestone 7: check change mid-run → rebaseline (rebase-probe-1, 14:54 UTC) ✅
+
+- nemotron-3.5-lightning, local backend, `--max-attempts 6`. Checkver `9ef47c667fd7` at the start.
+- Attempt 1 → 11,157 / 17,752 (0.628). Attempt 2 → 11,073 (0.624, best), `127b9c4`.
+- **14:56:39, right after `check-2`: the check changed.** `loadCases` in `check/score-core.ts` dropped every `Sort` case (722 train / 185 holdout), a scoring-relevant change. That bumps checkVersion, since score-core.ts is hashed, to `a499ffaaa17b`. The worker was swapped for one running the new code (~10s down; the user's `tsx watch` didn't respawn on the edit either, so a `nohup` worker took over).
+- **Attempt 3 → `check-3` under the new check: 10,293 / 17,030 (0.6044).** checkVersion differs from best's, so **`rebaseline-3` re-scored the incumbent `127b9c4` with the new check: 10,351 / 17,030 (0.6078)**, down from 0.6238 under the old check. Attempt 3 beat the re-scored incumbent (0.6044 < 0.6078) and became best. The keep/revert decision compared like with like: two scores from the same check.
+- Attempt 4: `changed: false` ("Empty: starting fresh", 1 turn). **No `check-4` and no `revert-4` in the trace**: the unchanged-attempt fix (8bac4a5) working live.
+- Attempt 5 wrote an empty `semver.ts` again (score 1.0) → reverted. Attempt 6 → 6,424 / 17,030 (**0.377**, best). Holdout under the new check: 1,582 / 4,270 (0.370). COMPLETED 15:02:49.
+- **Idle-turn cap exercised for the first time:** attempts 2 and 3 ended "(stopped after 4 turns without a tool call)". They used 35.5k and 32.7k output tokens on chat text, mostly `finish_reason: length` turns.
+- Afterwards `check/score-core.ts` was restored (`git checkout`), checkVersion is back to `9ef47c667fd7`, `check:selftest` is green, and the worker running the modified check was stopped.
+
+### Tool fix + first real sandbox grader run (2026-10-07, 15:20 UTC)
+
+- `write_file` / `edit_file` now reject a result that would leave the file empty (3081cb3). An empty module typechecks, so nemotron's empty writes had looked like clean successes.
+- Render: `goal-loop-worker` moved to its own Blueprint, `agent-loop/render.yaml` (dfd0b91). The root `render.yaml` is the live token-streaming-agent Blueprint on `mitch/render-deploy`; a second Blueprint from it would have duplicated those services. The Render worker uses `MODEL=nvidia/nemotron-3.5-lightning`.
+- **Sandbox access confirmed** on the Inngest Cloud account: the 403 from the earlier MCP probe is gone.
+- `INNGEST_DEV=0` in `.env` tripped the grader's "dev server" guard, which treated any non-empty value as dev. It now reads the variable like the SDK does ("0"/"false" = Cloud).
+- **Every create returned `503 compute_unavailable` (`retryable: true`) at 512MB**, three tries over 40s. Probing sizes: 1 vCPU/256MB and 512MB → 503 every time; **1 vCPU/1024MB → up in 1.5s**, 2/2048 → 1.1s. It looks like a minimum memory size reported as a capacity error. `MEMORY_MB` is now 1024 (the runner heap stays capped at 256MB). The sandbox image runs node v26.5.0.
+- **`pnpm check:sandbox-smoke`: PASS.** Stub 17,752/17,752 (score 1, 5.7s) and lookup 0/17,752 (score 0, 5.6s), checkVersion `9ef47c667fd7` (same as local). This was the first real run of the sandbox grader.
+- Multi-file in a real sandbox: `semver.ts` = `export * from "./lib/impl.ts"` with the lookup table in `lib/impl.ts` → score 0. Uploads under `src/`, the subdirectory and `.ts` specifiers all work under node type stripping.
+
+### First Cloud run on Render: a 9-minute turn 1 (render-smoke-1, 15:28 UTC)
+
+- Render Blueprint `agent-loop/render.yaml` applied by the user → `goal-loop-worker` (srv-db3698gm7kps73d69tk0, Inngest team workspace, oregon). **The Docker image built on its first try** (46s), and the worker connected via Connect (`ACTIVE`, `backend=sandbox`) at 15:27:10. A second instance seen at start-up was Render's deploy overlap; it drained cleanly (`WORKER_PAUSE`, `inFlightCount: 0`) at 15:28:07.
+- `render-smoke-1` (`--max-attempts 2`) sent 15:28:10. **turn-1 sat on attempt 0, "running", no error, for ~9 minutes**, then completed with 12 tool calls at once. Nothing showed up in the worker logs, because on Cloud `step.ai.infer` runs on the Inngest server.
+- Cause: **OpenRouter routing, not Inngest.** Direct calls with the same body (`tool_choice: required`, `provider.require_parameters`) all went to **Io Net at 7–9 tok/s**; the user's dashboard confirmed ~8 tok/s for the turn, against ~103 tok/s in the local probes earlier in the day. With `max_tokens` 8,000 and nemotron's long batched turns, that's minutes per turn.
+- Fix: `provider.sort: "throughput"` alongside `require_parameters`. The same request then routed to **CoreWeave at ~240 tok/s** (227 tokens in 1.0s, `list_files` called), at a similar cost per token.
+- Post beat: the slowness was invisible from the worker. The durable step just waited, with no error and no retry. Only the provider's throughput explained it. Routing is part of the harness too.
+
+### Cancelling an attempt crashed the loop (render-smoke-1, 15:50 UTC)
+
+- The user cancelled attempt 2's `agent-attempt` run from the dashboard at 15:50:26 (`inngest/function.cancelled`, then `function.finished` with status `Cancelled`).
+- **The parent didn't recover.** goal-loop logged `TypeError: Cannot read properties of undefined (reading 'input')` at 15:50:28, 15:51:00, 15:51:34 and 15:52:44, and kept retrying with backoff. **A cancelled invoke resolves `step.invoke`, it doesn't reject it**, so the `.catch(() => fallback)` that turns a failed attempt into a stall never ran. The loop then read `attempt.tokens.input` from a result that isn't an attempt result.
+- Fix (3d8fdb7): the invoke result goes through `isAttemptResult` (commit, changed, costUsd, tokens). Anything else, a cancellation included, becomes the same failed-attempt stall as a rejected invoke. The invoke result is memoized, so a goal-loop retry that runs the new code handles the same cancelled result.
+- Shipped together with 82b6570: `score-i` steps return `{ name, value }`. `step.score()` returns void, so its step output was `null` in the dashboard; the score is now written with `inngest.score()` inside our own `step.run` (same `inngest.score` metadata on the step).
+- **Recovered.** The goal-loop retry that ran 3d8fdb7 treated the cancelled attempt 2 as a stall ("attempt cancelled or returned no result"), ran the holdout in a Cloud sandbox, and emitted `goal/finished` at 15:55:12. Result: best 10,539 / 17,752 (0.594, attempt 1), holdout 2,701 / 4,455 (0.606), 2 attempts, $0.0008. **First complete goal on Inngest Cloud + Render + Sandboxes.** A code fix shipped mid-run, and the memoized invoke result was replayed against the new code: the run didn't need restarting.
+
+### render-smoke-2: fast routing on Cloud (15:58 UTC)
+
+- Deploy 1aacefa (throughput routing, cancel fix, score output). nemotron-3.5-lightning, sandbox backend, `--max-attempts 4`. Sent 15:58:17, COMPLETED 16:08:35 (10m18s).
+- Attempts (train failing / 17,752):
+  - 1 → 16,407 (0.924): 3 tool turns + **4 idle turns (cap hit)**, ~2 min, $0.0072.
+  - 2 → 16,520 (worse, reverted): 5 + 4 idle (cap hit), $0.0080.
+  - 3 → **8,189 (0.461, best)**: 8 turns, 1 idle, $0.0041.
+  - 4 → `changed: false` after 8 turns: no check step, reported at best's score (the unchanged-attempt skip, now seen on Cloud too). $0.0036.
+- Holdout 2,064 / 4,455 (0.463), ≈ train. Total **$0.0229**, 90.7k in / 91.2k out tokens.
+- **Speed fixed:** 2–4 min per attempt (~15–30s per turn) vs a 9-minute single turn on Io Net.
+- **New trade-off:** output tokens per attempt went up ~5–10× (91k out over 4 attempts; local probes were ~2–9k per attempt), and attempts 1–2 hit the idle cap. On the fast provider nemotron writes long chat-text turns (likely running to `max_tokens` 8,000) instead of tool calls. Costs are still about a cent per attempt, but the idle cap is now doing real work. Candidates: lower `maxTokensPerTurn` for this model, or check whether the CoreWeave route treats `tool_choice: required` differently from the providers used locally.
+
+### canon-3 on Cloud, the review, and "finishing" without editing (16:09–16:30 UTC)
+
+- `canon-3` (nemotron, sandbox backend, 60 attempts, maxStalls 5, 8,000 tokens/turn). Attempt 1 → 8,747 / 17,752 (**0.493**), then attempts 2–6 all stalled (3 with no change; 4 and 5 slightly worse and reverted). **Parked at `review-6` at 16:20.**
+- The best code, recovered from attempt 1's `function.finished` result and graded locally (same 8,747), is a sketch: an optional leading `v`, shorthands (`v1`, `v1.2`) rejected, parts returned without prefixes (`Major` gives `"6"` not `"v6"`), and `Compare`/`Max`/`Sort` as plain string comparisons, with "placeholder" comments in the code.
+- **Review at 16:24:53** (`continue`, 756 chars, six rules: leading v, shorthands + Canonical padding, prefixes, one shared parse(), Compare precedence, Max/Sort). The note reached attempt 7's input verbatim.
+- **It didn't help.** Attempts 7–10 changed nothing and got shorter (7, 7, 4, 2 turns). Attempt 7 called `finish_attempt` with *"need to make focused edits to semver.ts to fix the port"*, a plan instead of an edit. Attempt 11 made a change that scored 1.000 (reverted). Parked again at `review-11`. The parallel `session-probe-1` showed the same thing (attempt 2: 3 turns, 13s, no change).
+- **Harness fix:** `finish_attempt` before any successful `write_file`/`edit_file` in the attempt is refused (up to 2× per attempt) with "you haven't changed any file in this attempt…". It's derived from memoized tool results, so replay is deterministic. Post beat: the human note was correct, and the model still had to be made to act on it.
+- `goal:send` now tags `goal/started` with Inngest Sessions (`meta.sessions.goal_id`), propagated to invoked attempts. `session-probe-1` is the first tagged goal; the REST events API doesn't return `meta`, so check AI > Sessions in the dashboard.
+
+### canon-3 after the finish fix, and a truncated tool call (16:32–16:52 UTC)
+
+- With the finish refusal deployed (294e805) and the note resent at 16:32:32: 12 → 0.491, 13 → 0.366, 14 → 0.350, 15 unchanged, 16 worse (reverted), **17 → 0.338**, 18 failed, 19 unchanged, **20 → 0.337 (5,987)**, 21 worse (reverted). That's 0 of 10 improving before the fix (with or without the note) against 5 of 10 after it.
+- **Attempt 18 failed outright** (`turns=0 cost=0`): `AIGatewayError` 400, NonRetriable. The model's previous turn was cut off inside a tool call's JSON arguments; the tool answered "not valid JSON", but the broken call stayed in the history, and CoreWeave rejected the next request (`messages[13].tool_calls[1].function.arguments must be a valid JSON object string: EOF while parsing`), then Io Net. The loop counted it as a stall and attempt 19 started normally: the harness absorbed it.
+- Fix (not yet deployed; canon-3 is in flight): the assistant message in the history replaces invalid tool-call arguments with `{}`. The tool's error result still tells the model what went wrong.
+
+### A live view: `pnpm goal:watch` (pi-tui + Inngest Realtime)
+
+- Wanted for the post and for anyone running the example: watch the loop loop, and answer the review without curl. Chose pi-tui (differential rendering, built-in editor for the note) over Ink.
+- Data: REST events for history (realtime has none), then a Realtime channel per goal. goal-loop publishes `goal.started`, `attempt.scored` (with the keep/revert verdict, best score and stall count, which the `goal/attempt.scored` event doesn't have because it's sent before the decision), `review.waiting`/`review.resumed`, and `goal.finished`. agent-attempt publishes `attempt.started`, one `turn` per model call (tool-call count, finish reason, a text excerpt) and one `tool` per call.
+- Design choice: **every publish is a memoized step that swallows errors**. A watcher is a viewer; a realtime hiccup must never retry or fail a goal, and a replay must not re-send. That costs 2–3 steps per iteration (budget 7 → 9, cap 141 → 110 attempts). Tool messages ride inside the tool step that already runs once.
+- First look, against canon-3's real history (live connection up, no worker publishes yet): the flat 0.49 stretch through two reviews, attempt 11's broken edit as a red dot on the floor, then the climb after the finish fix. With a fixed 0–100% axis the climb was invisible (everything sat at 50–66%), so the axis now spans the kept attempts' range.
+
+### Runaway whitespace turns, and maxTokensPerTurn 8000 → 4000 (tui-probe-1, 17:05 UTC)
+
+- The TUI made a pattern visible: `no tool call (cut off at the token limit) 8000 tok`. In the dev-server trace, these turns are nemotron opening a `[` in plain content and then emitting whitespace (`\n \n \t\t\t…`) until `max_tokens`. Its reasoning just before shows it meant to act ("Now edit Prerelease.", "Let's edit one at a time."). It looks like a JSON tool call that degenerated into content.
+- Across 102 tool-call turns on the dev server (2026-10-06/07), completion tokens: p50 237, p90 1,730, p99 2,546, max 3,650. 18 turns ran away to 8,000. **Raising the cap would only buy more whitespace.** The default is now 4,000 (it covers every real call seen), which halves the cost and the wait of each runaway; the idle cap still bounds how many there can be. Per goal: `--max-tokens N`.
+- `goal:watch` can now start the goal itself (`s` or `--start`, same flags as `goal:send`; resets the local workspace first).
+
+### It was the provider, not (only) the model (17:45 UTC)
+
+- Runaway turns by provider (nemotron-3.5-lightning, all dev-server turns 2026-10-06/07): **CoreWeave 33 runaways / 135 turns (24%)**; Phala 0 / 35; Io Net 0 / 1. The runaways began when `sort: "throughput"` started routing everything to CoreWeave.
+- The other symptom you see in `goal:watch`, `edit_file error: old_string must be a non-empty string`, is the same thing: all 11 recent cases arrived as `{"new_string":"","old_string":"","path":"semver.ts"}`, an edit the model meant to make with its strings dropped.
+- **Controlled A/B:** rebuilt the exact request of a runaway turn (tui-probe-1 attempt run 01M4BQ6GNNR0PAF4ZBCN5ZJP71, turn 3) from the memoized step outputs and replayed it 5× per provider with `order: [p], allow_fallbacks: false`. CoreWeave: 1 runaway, 3 × `list_files` again (2,000–2,700 tokens each), 1 × `read_file`. **Phala: 5/5 `edit_file`** (1.2–3.1k tokens, ~200 tok/s). Same model slug, same request, a different agent.
+- Fix: `MODEL_PROVIDERS` (comma-separated → OpenRouter `provider.order`, fallbacks still allowed; `require_parameters` kept). Set to `Phala` in `.env` and `render.yaml`. Unset keeps `sort: "throughput"`.
+- Post beat: "the model" in an open-weights harness is really model × provider (quantization, chat template, tool-call parser). The harness absorbed CoreWeave's broken turns (the idle cap, empty-edit rejection, the stall counter), but routing was costing about a quarter of the turns.
+- Considered and deferred: dedicated inference (e.g. Baseten). It would pin the serving stack (quantization, template, tool parser) and make numbers reproducible across runs, at the cost of paying for an idle GPU and setup time. Pinning a good OpenRouter provider is free, so try a full run on Phala first; switch if it proves flaky or unavailable.
+
+### README, review context, and a history bug (18:00 UTC)
+
+- `README.md` written for agent-loop (the loop, the harness table, quick start, a detailed TUI section, Cloud, config, model × provider), and listed in the root README.
+- The review pane now shows what the reviewer needs to write a note: the best attempt's check report (failures by function, shortest failing examples) and each stalled attempt's `finish_attempt` summary. Both are also on `goal/attempt.scored` (optional `report`, `summary`), so a TUI opened mid-review has them.
+- `goal:watch --dev | --cloud` overrides `INNGEST_DEV` per session (set before the Inngest client is created). Starting resets the local workspace only for a dev-server target with the local backend.
+- Bug found by watching canon-3 from Cloud two hours after it started: the REST events API only returns recent events (about the last hour) unless `received_after` is given, so `goal/started` went missing and the history showed 3 rows with best 1.000. Now every query passes a 7-day lookback; canon-3 loads all 25 attempts.
+
+### Carrying context between attempts: journal, regressions, rotating examples (18:40 UTC)
+
+- Problem: the model still stalls a lot. Each attempt started knowing only the best code, the best result's report and the human note. Nothing about *what earlier attempts tried, or how it went* carried over, and the report always showed the 10 shortest failing cases, so a stalled goal showed every attempt the identical brief. Attempt 15 had no way to know attempt 14 tried the same fix.
+- Constraint: no gaming the training. Everything new comes from the train check the agents already see a part of, plus their own summaries; no more train examples per brief than before; holdout untouched (the train/holdout gap at the end is the overfitting guard).
+- **Journal:** goal-loop keeps the last 5 attempts (outcome, failing count, the attempt's own `finish_attempt` summary, per-function change in failing cases against the best at the time) and the brief lists them with "don't repeat an approach that was reverted or changed nothing".
+- **Regressions:** the check now takes the best result's failing-case bitset (`failBits`, base64, ~3KB for 17,752 cases) and returns the cases this attempt newly broke. When an attempt is reverted, the next brief shows up to 5 of them ("attempt #6 was reverted because it broke 121 cases that the best code passes… keep these passing"). Cleared when an attempt is kept; skipped if the check version changed in between.
+- **Rotating examples:** the check returns a pool of 60 failing-case lines (round-robin across the worst functions, shortest first); each brief shows a window of 10 picked by attempt number, deterministic for replay.
+- Offline test: workspace best (4,883 failing) vs a copy with an early return in `Compare` (4,981): regressions 121, journal "Compare 98 more failing" (net, 23 also fixed), attempts 7 and 8 got different example windows.
+- `check/score-core.ts` and `check/types.ts` changed, so checkVersion changes: a goal running across the deploy re-scores its best once (`rebaseline-i`).
+- Not yet measured. Next: a matched pair against the previous brief.
+
+### A turn stuck for 8+ minutes, and moving model calls onto the worker (18:30–19:05 UTC)
+
+- Local run 01M4BT2HCB099CWVKRZ6FY8774 (`run-2`, attempt 5): `turn-6` `RUNNING` in `AI_GATEWAY` from 18:30:37, no retry attempts, nothing in the worker logs. Nothing *could* be there: `step.ai.infer` makes the HTTP call from the Inngest server.
+- Rebuilt the exact turn-6 request from the trace and replayed it: Phala pinned with no fallback → immediate **429 "temporarily rate-limited upstream"**; with the real routing (Phala first, fallbacks allowed) → **Darkbloom (int4)** answered in 12–19s, chat text with no tool call. So the request doesn't inherently hang: that one connection never came back, and the gateway has no timeout we control. Also learned: when the pinned provider rate-limits, the fallback is a 4-bit quant that doesn't call tools.
+- Fix: `MODEL_CALL=worker` (default). Each turn is `step.ai.wrap("turn-N", …)` (same step id, same response shape, so in-flight runs replay fine) calling the OpenAI SDK against OpenRouter with a 180s timeout (`MODEL_TIMEOUT_MS`) and `maxRetries: 0` (retries belong to the step). Failures are classified: timeouts / 408 / 429 / 5xx retried, other 4xx non-retriable; a 200 with an `error` body is retried.
+- Observability, following Inngest's AI metadata quickstart: the worker preloads `@inngest/otel/node`, which instruments the OpenAI SDK (`gen_ai.*` spans → `inngest.ai` metadata on the step: model, tokens, latency, cost). Gotcha: `@traceloop/instrumentation-openai` 0.27 patches `openai` `>=4 <7` only; npm's latest is 7.x, which it silently skips, so `openai` is pinned to v6 (verified: `create.__wrapped === true` with the preload, false without; and through `tsx --import`). On top, `model_call` metadata (`inngest.metadata`, needs `metadataMiddleware()`, whose getter throws synchronously without it) carries provider, finish reason, reasoning tokens, generation id and failure status; the worker logs one line per call and per tool call.
+- Trade-off, for the post: infer survived a worker restart mid-turn (milestone 5 relied on that); wrap doesn't, the turn is retried instead. Visibility and a timeout won. `MODEL_CALL=inngest` brings infer back.
+
+### Helping the model unstick itself: code in the brief, edit hints, one function per attempt (2026-10-07, ~19:30 UTC)
+
+- Two kinds of stuck. *Within* an attempt it flails: turns spent on `list_files` / `read_file` (each a chance at a runaway or a chat answer), and `edit_file` misses ("0 matches; read_file and copy it exactly") that it repeats. *Across* attempts it plateaus: broad changes that fix some functions and break others, reverted.
+- Same line as before: nothing from the holdout, no check source, no way to run the check. Ruled out a Go oracle (`run` against the real implementation hands out expected values for any input, which is the check). Giving it `semver.go` itself is a fair spec but changes the experiment ("port from source" vs "infer the behavior"); parked as a decision for the post.
+- **Code in the brief:** `prepare` now returns the `.ts` files under `src/` after the reset (local) or the seed (sandbox), and the brief inlines them (cap 20,000 chars; the current best is 8,108). The system prompt drops "read the file before changing it". A run prepared before this deploy has no `code` in its memoized step and just goes without.
+- **Edit hints:** on 0 matches, `edit_file` looks for the lines equal to `old_string` but for whitespace, else the closest window (same length ±1 line, Dice similarity over character bigrams, threshold 0.5), and quotes it verbatim with its line numbers ("copy it into old_string exactly as it is here"). Below the threshold it says the file probably changed since it was copied. Multiple matches list their lines; an empty `old_string` points at `write_file`.
+- **One function per attempt:** goal-loop picks a focus from the best's `byFn`: the most-failing function, moving down the list by one per stall (`failing[stalls % n]`), so it needs no new state and replays from the same values. The brief says to fix that function's failures only (other code only if they come from it, e.g. a shared parser) and the example window shows that function's examples (the pool's round-robin holds several of each; topped up with others if fewer than 10). No focus until something has been kept: from the stub, writing the whole port at once is still best. `focus: false` / `--no-focus` turns it off, for a matched pair.
+- Offline on the workspace best (4,883 failing): focus goes Max → MajorMinor → Compare as stalls go 0 → 2; brief ~9.7k chars. 6 new tool selftests (whitespace-only, near miss, nothing close, empty, ambiguous).
+- Not yet measured. Next: a matched pair, same model and provider, focus vs `--no-focus`.
+
+### First run with the unstick changes: worse, and why (canon-5 vs live-4, 19:06–19:25 UTC)
+
+- Not a clean pair. `live-4` (18:53, before b80c56d) had the old brief: no code, no hints, no focus. `canon-5` (19:06, after) had all three. `canon-5-nofocus` was never started on Cloud. Same model, Phala, 20 attempts, 4 stalls.
+- Result: live-4 best **0.298** (holdout 0.301, $0.072); canon-5 best **0.506** (holdout 0.501, $0.068). Holdout tracks train in both, so no overfitting.
+- The gap opens at attempt 1, before focus is on (it waits for a kept attempt). live-4 #1 wrote the whole port (0.411). canon-5 #1 implemented only IsValid and Canonical (0.921); #2 tried the rest and broke everything (17,752/17,752, reverted). Likely cause: with the stub file in the brief, the model edits function by function instead of writing the port once.
+- Then focus turned "fix failures" into "implement one stub per attempt": #3 Compare, #4 Max, #7 Prerelease, #10 Build, #13 MajorMinor, #16 Major. canon-5 improved steadily (8 kept of 20) but started 0.5 behind.
+- Max got focus 6 times (#8, #11, #14, #17, #19, plus #4) and was reverted every time after #4. It has the most failing cases because it sits on top of Compare and parsing, and focus resets to the top of the list after every kept attempt.
+- Two attempts (#2, #20) failed every case (a broken module), the same shape as before.
+- Takeaways: (1) focus shouldn't apply while functions are still stubs (failing 100%); (2) the most-failing function isn't the best target when it's downstream; rotation needs to remember which focuses didn't work, not reset on every kept attempt; (3) the stub file in the brief needs an explicit "write the whole port" when stubs remain.
+
+### Focus, second version (19:45 UTC)
+
+- **Stubs first:** a function failing every case (`failed === total`) counts as unimplemented. While any remain there's no focus, and the brief says "Still unimplemented or failing every case: … Implement all of them in this attempt, not one at a time; writing the whole file once with write_file is fine." This applies with `--no-focus` too, since it answers the code-in-brief regression, not focus. Replaces the "no focus until something is kept" rule.
+- **Rotation remembers:** goal-loop counts, per function, focused attempts that weren't kept (`focusMisses`). The next focus is the failing function with the fewest misses, most-failing first among equals. A kept attempt adds no miss, so focus stays on a function while it keeps improving and moves on from one it can't fix; nothing resets after a kept attempt. Plain loop state, rebuilt on replay.
+- Offline: the stub gives no focus and lists all 9 functions; on the 4,883-failing best with every attempt missing, focus goes Max → MajorMinor → Compare → Canonical → Prerelease → Sort instead of back to Max.
+- Next: `canon-6` and `canon-6-nofocus`, started together on the same deploy.
+
+### A bigger model, and an empty assistant turn that killed the attempt (~20:15 UTC)
+
+- Trying a larger model on Cloud: `NonRetriableError: model call 400 … "Assistant message must have either content or tool_calls, but not none." (invalid_request_assistant_message, code 3240)`.
+- Cause: a turn that returned neither text nor a tool call (e.g. everything spent on reasoning) went back into the history as `{ role: "assistant", content: null }`. Nemotron's providers accepted it; this one validates and rejects the *next* request, and a 400 is non-retriable, so the attempt failed (the loop counts it as a stall and goes on).
+- Fix: such a turn goes back as content `"(no output)"`. Dropping it instead would leave two user messages in a row (the nudge follows), which strict chat templates reject too.
+- Same family as the cut-off tool-call 400 (canon-3 #18): whatever goes back into the history has to be valid for the strictest provider, not just the one that produced it.
+
+### mistral-large-4-0: every turn cut off while thinking (canon-8, canon-9, ~20:16–20:23 UTC)
+
+- First try of a bigger model, `mistralai/mistral-large-4-0` (routed to Mistral's own API), on the default `maxTokensPerTurn` 4,000: **every turn** ended `finish_reason: length` with no tool call, 3,084–3,909 of the 4,000 output tokens reasoning, 37–69s each (~100 tok/s). Writing the port takes ~3k tokens on top. Reasoning from a cut-off turn isn't kept, so each turn started thinking from scratch: no progress possible.
+- The nudge after a cut-off said "make a smaller edit with edit_file", which is the right advice for a runaway (nemotron's whitespace) and the wrong one here. Now, when at least half the cut-off output was reasoning, it says it ran out of room while thinking, that the reasoning isn't kept, to keep thinking short and make the tool call now (the first part with edit_file if the whole change doesn't fit). Turn messages carry `reasoningTokens`; the TUI shows "cut off while reasoning: 3.5k of 4.0k".
+- The budget itself is per goal: for this model `--max-tokens 12000 --reasoning-max-tokens 5000`. Next harness idea, not done: raise the attempt's own budget after repeated reasoning cut-offs.
+
+### mistral-large-4-0 ignores reasoning budgets; it's on or off (20:35 UTC)
+
+- canon-10 (`--max-tokens 20000 --reasoning-max-tokens 10000`, so `reasoning.max_tokens: 10000` was sent): turn 1 still reasoned 18.2k of 20k and was cut off.
+- Probe, the real attempt-1 request (stub brief, tools, `tool_choice: required`, `max_tokens` 8000), one call per variant, all on Mistral's own endpoint (it lists `reasoning` and `reasoning_effort` as supported):
+
+  | reasoning sent | result | out / reasoning | time | cost |
+  |---|---|---|---|---|
+  | (none) | cut off | 8000 / 6513 | 80s | $0.017 |
+  | `max_tokens: 1500` | cut off | 8000 / 7073 | 85s | $0.017 |
+  | `effort: "minimal"` | cut off | 8000 / 7045 | 85s | $0.017 |
+  | `effort: "low"` | cut off | 8000 / 6672 | 86s | $0.018 |
+  | `effort: "none"` | **write_file** | 2314 / 0 | 24s | $0.005 |
+  | `enabled: false` | **write_file** | 3248 / 0 | 32s | $0.008 |
+
+- So for this model a budget or a low effort does nothing; reasoning is on (and long) or off. With it off, attempt 1 writes the whole port in one turn at a third of the cost.
+- General lesson for "any model on OpenRouter": reasoning controls come in three kinds (a token budget that's honoured, an effort level that's a hint, on/off only) and the model listing doesn't say which. The harness can't trust a cap; it has to watch what comes back and adapt.
+
+### Hardening for any OpenRouter model: profile, reasoning ladder, learned start (~20:45 UTC)
+
+- Goal: try almost any model on OpenRouter without per-model flags.
+- **Model profile** (`src/lib/model-profile.ts`, step `model-profile` in goal-loop): reads `/api/v1/models/<slug>/endpoints`. An unknown slug (404) or a model with no tool + `tool_choice` endpoint fails the goal immediately (`NonRetriableError`, plus a `goal.failed` realtime message the TUI shows). `reasoning` is dropped when no tool endpoint takes it (qwen3-coder: none do; sending it there finds no provider). The turn budget is clamped to the largest `max_completion_tokens`. Checked against real listings: mistral-large-4-0 (tools, reasoning, 262k out), nemotron (235k), qwen3-coder (no reasoning), mythomax (no tools → fail), llama-3-8b-instruct (listed, zero endpoints → fail), `not/a-model` (404 → fail). An unreadable listing (API error, another base URL) falls back to permissive, as before.
+- **Reasoning ladder** (agent-attempt): turns cut off with ≥ half the output reasoning count up; the first gets the nudge, the next doubles the budget (to the cap, max 32k; the call timeout becomes max(MODEL_TIMEOUT_MS, 15 ms/token)), the next turns reasoning off (`reasoning: { enabled: false }`, honoured by Mistral and by nemotron on Phala, which still called the tool). Each step is derived from memoized responses, so replay matches.
+- **Learned start:** if the ladder climbed and the model then made a tool call, the attempt returns `learned { maxTokens, reasoningOff }`; goal-loop keeps the max and later attempts start there.
+- **Local probe** (ladder-probe-1, mistral-large-4-0, default 4,000 budget, from the stub): t1, t2 cut off reasoning (3,471 / 3,019 of 4,000) → budget 8,000; t3 wrote the whole port with 26 reasoning tokens (nudge + room); t5 cut off reasoning again (6,256 of 8,000) → reasoning off; t6 called `finish_attempt` in 1.8s. **Attempt 1: 2,481/17,752 failing (0.140), holdout 0.146, $0.053.** The best attempt 1 of any model so far (nemotron's ~0.41). Learned start across attempts not observed yet (one-attempt goal).
+- Found on the way: t3's `write_file` went to `src/semver.ts` and failed ("directory does not exist"); the brief itself labels the code `src/semver.ts:`. Tools now drop a leading `src/` or `./` (traversal like `src/../x.ts` is still rejected; 2 new selftests, 45 total).
+
+### canon-6 pair: focus v2 vs no focus (19:50–20:12 UTC, both cancelled at 20:12)
+
+- Same deploy (67706ea), nemotron, 20 attempts / 4 stalls, started 9s apart. Both goal runs were cancelled at 20:11:52 / 20:11:59 (when the bigger-model tries started), so the pair is cut short: canon-6 at 18 attempts, canon-6-nofocus at 13. No holdout.
+- Attempt 1: 0.414 vs 0.434. Both wrote the whole port, so the "implement all the stubs" line fixed canon-5's 0.921 start.
+- **Focus: 0.351 after 18 attempts, 5 kept** (Prerelease, Build, Max, Major fixes, one per focus). **No focus: 0.422 after 13, 2 kept.** No focus made the same reverted change (minor/patch optional in the version regex) 5 times (#3, #5, #8, #10, #11) despite the journal, and 5 attempts changed nothing; focus tried it twice, while focused elsewhere.
+- One run each and cut short: an indication for focus, not a measurement. canon-6 at its attempt 13 (0.352) was already ahead of no focus at 13 (0.422).
+- Side note: canon-6 #19 was served by **CoreWeave**, not Phala (turns 4–5: 4,000 of 4,000 reasoning, cut off). `MODEL_PROVIDERS=Phala` allows fallbacks, so when Phala is unavailable or rate-limited the turns go to the provider we pinned away from. Worth watching; options are `allow_fallbacks: false` (fail and retry instead) or a second good provider in the list. The reasoning ladder now also catches those cut-offs.
+
+### First solved run: qwen/qwen3.8-27b, canon-12 (20:40–20:52 UTC) ✅
+
+- `--model qwen/qwen3.8-27b --max-tokens 20000 --reasoning-max-tokens 10000`, 20 attempts / 4 stalls, on 54aa90e (focus v2, code in brief, edit hints; before the model profile and reasoning ladder).
+- **Train 0/17,752 failing, holdout 0/4,455 (pass), in 13 attempts, 12 minutes, $0.85** (212k tokens in, 146k out).
+- Trajectory: 0.471 (#1, the whole port, 8 turns, $0.27) → reverted, reverted → 0.160 (#4: abbreviated versions `v1`, `v1.2`) → 0.136 → 0.116 → 0.098 → 0.033 (#8: Canonical drops build metadata) → 0.021 → reverted → 0.015 → 0.002 (#12: keep major/minor/patch as digit strings) → **0** (#13: prerelease compare continues past equal numeric identifiers). After #3, 9 of 10 attempts were kept, each a single named Go behavior in 2–3 turns, each summary matching what the report showed.
+- Holdout tracks train to the end (0 and 0): the agents only ever saw ≤10 examples per brief plus per-function counts, and the result generalizes.
+- Contrast for the post: nemotron-3.5-lightning plateaued around 0.30–0.35 with the same harness at ~$0.07 a goal; qwen3.8-27b solved it for ~12× the cost. The harness didn't change between them.
+
+### Simplification pass for readers (~21:00–21:45 UTC)
+
+- Goal: make the harness readable and reviewable for people learning from it, with **no behavior change**. Three subagents in parallel on disjoint files (core functions, TUI, everything else).
+- Guard rails: a snapshot of the system prompt, tool definitions and two full briefs taken before, required byte-identical after (it is); the four files hashed into checkVersion untouched (so no rebaseline); step ids unchanged except `resolve-model` + `resolve-reasoning` + `model-profile` → one `settings` step (in-flight goals on the old code won't replay; deploy between runs); TUI screen captures before/after byte-identical.
+- Core: `agent-attempt.ts` 398 → 235 lines, `goal-loop.ts` 366 → 274. New `src/lib/`: `reasoning-ladder.ts` (a pure class), `history.ts` (what goes back into history), `workspace.ts` (local git vs sandbox behind one interface; the backend branches are gone from both functions), `loop-state.ts` (pure `afterAttempt`: outcome, journal, regressions, focus misses, stalls, learned), `openrouter.ts` (model profile + context window, was two files), `step-types.ts`. The attempt input is grouped as `{ goalId, i, start, brief, model }`; the attempt passes `brief` straight to `buildBrief`. Comments trimmed to the why; incident stories stay here.
+- TUI: `watch-goal.ts` 481 → 205 lines (wiring) + `scripts/watch/` (state, render, chart, review, format).
+- Tests: new `pnpm check:harness` (38 cases: ladder, loop-state, history); `check:tools` 45, `check:selftest` green. End to end on the dev server (refactor-e2e-1, nemotron, 3 attempts): all runs completed, 0.469 → 0.418, holdout 0.423, $0.009; the TUI live pane (provider, context meter, turns, tools) checked by capture.
+- Pinned the spec source for the next experiment: `data/spec.txt` = `go doc -all golang.org/x/mod/semver` at **v0.21.0** (from golden/go.mod + go.sum, the version that generated the cases); `pnpm spec:gen` refuses to write if go.mod and data/meta.json disagree; `check:selftest` asserts spec, meta.json and go.mod all say v0.21.0.
+- Noticed, not fixed (behavior): a live `goal.started` while the TUI shows the review editor leaves the editor up; `classify` calls an attempt with 0 turns and $0 "failed" even if it ran (possible with MODEL_CALL=inngest, which may not report cost); `isAttemptResult` checks only some fields; with maxStalls=1 an iteration that rebaselines, reverts and reviews takes 10 steps (budget 9; only matters if the check is edited mid-run); trace-dump.py crashes on a non-dict tool output.
+
+### More information in the brief: `--spec` and `--examples N` (~22:00 UTC)
+
+- Question from the TUI: attempts use ~5% of the context window; would more information help? Not room but content: small models degrade with long prompts and every turn resends the history, so add only what's missing. Two candidates, both fair (spec and train data, no holdout, no check source):
+  - **`--spec`**: Go's own documentation for the package (`data/spec.txt`, `go doc -all` at the pinned v0.21.0; ~3.2k chars). Several of qwen3.8's fixes in canon-12 (#6 prerelease keeps "-", #8 Canonical drops build, #9 build keeps "+", #12 shorthand versions) rediscovered what these doc comments say. Read in the `settings` step so a replay sees the same text.
+  - **`--examples N`** (≤ 50): with a focus, N of the focus function's own failing cases (rotating per attempt), instead of 10 drawn from a 60-case pool spread across 9 functions (~7 of the focus function's). The check now returns up to 50 failing cases per function (`examplesByFn`, shortest args first, ~30KB); only the focus function's list is passed to the attempt.
+- Default brief byte-identical (snapshot), so a goal without the flags is the control. 7 new harness tests.
+- The check changed (score-core.ts, types.ts), so **checkVersion changes**: a goal running across the deploy rebaselines its best once.
+- Next: nemotron pair started together, same deploy: control, `--spec`, `--examples 40`.
+
+### TUI: a start form instead of flags (~22:20 UTC)
+
+- The goal flags had grown to ten. `s` now opens a "Start a goal" form (`scripts/watch/start-form.ts`, a small custom component: pi-tui's SettingsList only cycles forward and doesn't mix a text field with toggles): goal id, model, attempts, stalls, tokens per turn, reasoning, focus, Go docs, examples. Flags still work and become the starting values; `--start` skips the form; with no `--goal` the form opens at launch.
+- Starting under a different id switches the view: `watch(id)` closes the subscription, resets the state, loads that goal's history and subscribes; a generation counter drops callbacks from the goal it switched away from.
+- Tested in a pty: editing, cycling, Ctrl+U, Esc then `q`; and on the dev server, starting `form-e2e-1` from the form while watching another goal (switched, sent `goal/started`, baseline scoring shown).
+
+### `--spec` in the wild, and the final pass (2026-10-07 21:42 → 2026-10-08)
+
+- Not the planned canon-13 trio (never started); two goals with `--spec` on 3716f36:
+  - **qwen-test** (qwen/qwen3.8-27b, `--spec`, 20,000 tok/turn): attempt 1 → 415/17,752 failing (0.023); attempt 2 → **0** ("nextNum rejects zero-length number runs" fixed Sort). **Solved in 2 attempts, $0.53**, against 13 attempts and $0.85 for canon-12 without the spec.
+  - **cloud-test-1** (nemotron, `--spec`, 4,000 tok/turn): attempt 1 → **0.242**, against 0.41–0.47 for nemotron's attempt 1 without it (live-4, canon-6, canon-6-nofocus, refactor-e2e-1); then 5 attempts without progress (one wrote a broken module, 17,752 failing), parked for review.
+  - Uncontrolled (one run each, different days of routing), but the direction is clear and large: the documentation the cases came from is the most useful thing the brief can carry.
+- Final pass fixes (small behavior changes, found during the simplification):
+  - An attempt is "failed" only when goal-loop marks it so (`failed: true` on the stand-in for a failed or cancelled invoke), no longer inferred from 0 turns and $0 (an attempt that ran under MODEL_CALL=inngest may report no cost).
+  - `isAttemptResult` also checks `summary`, `turns`, `idleTurns`.
+  - Step budget counts a rebaseline: 10 per iteration, so `MAX_ATTEMPTS_CAP` 110 → 99.
+  - TUI: a goal restarted elsewhere while the review editor is up closes the editor.
+  - trace-dump.py no longer crashes on a non-dict tool output.
+- Checks: typecheck, `check:harness` (all pass, +1 case), `check:tools` 45, `check:selftest` green; default brief byte-identical to the snapshot taken before the simplification.
+
+### Evals and the `brief` experiment (2026-10-09)
+
+- For the video demo: Inngest Experiments (variants side by side) and more scores than the single `check.fail_rate` line.
+- **Event**: `goal/started` takes an optional `variant` (`control`, `spec`, `examples`, `no_focus`; the existing brief flags as named option sets in `BRIEF_VARIANTS`); `goal/finished` carries it back so the report can group runs.
+- **Loop**: with a variant, `group.experiment("brief", ...)` with `experiment.fixed(variant)` runs before `settings` (each variant is a `step.run`, which the SDK requires); `focus`, `spec` and `examplesPerBrief` come from its result, else from the event. A run without a variant has no extra steps. `RESERVED_STEPS` 10 -> 12 (select, variant step, score-final), so `MAX_ATTEMPTS_CAP` 99 -> 98.
+- **Scores**: `recordScore` became `recordScores`, all of a step's scores in one `step.run`. `score-<i>` now writes 7 per-attempt scores (after `afterAttempt`, so outcome and delta are known); `score-holdout` became `score-final` (train/holdout pass rate, generalization gap, solved, attempts, kept attempts, best-at attempt, cost, tokens, per-function train pass rates), run-scoped via an explicit `runId` and attributed to the experiment with `inngest.score.experiment`.
+- **Evals**: `evals/brief-v1.json`, `pnpm eval` (one run per variant x repeat, `--sequential` for the local backend) and `pnpm eval:report` (per-variant table from `goal/finished` events; `fetchEvents` is now exported from goal-history.ts).
+- **TUI**: the start form has a "Brief experiment" row (off or a variant), and `goal:send` / `goal:watch` take `--variant <name>` as a preset.
+- **TUI**: more headroom in the start form: reasoning budgets 2000/5000/8000/16000 (was up to 10000) and 32000 tokens per turn (the cap). Prompted by a thinking model spending 11.3k of a 12k turn reasoning and emitting only `[`; a budget (clamped to half the turn) keeps room for the tool call, where an effort level doesn't.
+- **Whitespace runaway**: a stuck model under `tool_choice: "required"` opens a tool call (`[`) and pads it with whitespace until the turn budget runs out (seen at 12k tokens, in the text and in the reasoning). `whitespaceRunaway` (history.ts) spots it: cut off, no tool call, text or reasoning ≥500 chars and <5% non-whitespace. Then: a specific nudge ("don't pad, make one small edit_file now"), the text is trimmed before it goes back in history, the ladder skips the budget raise and goes straight to reasoning off, the TUI shows `cut off: 12k of whitespace`, and the system prompt says never to pad a reply. Penalty params (frequency/repetition) were left out: with `require_parameters` they would narrow the providers.
+- **Review fixes**: a goal no longer parks for review on its last attempt (nothing to resume into; an eval where nothing was ever kept used to sit 3 days in `waitForEvent`); eval sends `maxStalls = maxAttempts + 1`; `--sequential` has a per-run `--timeout-min` and survives a failed poll; batch ids include seconds; unknown `--variants` names are an error; `attempt.delta_failed` uses the rebaselined best.
+- **Sandbox steps**: on the sandbox backend, `check-<i>`, `baseline` and `holdout` are now five steps each (`<id>-sandbox` `step.sandbox.create`, `-upload`, `-exec` a durable `commands.run`, `-score`, `-destroy`), so the run trace shows the sandbox instead of one opaque `step.run` (`sandboxMiddleware()` on the client, `runCheckSandboxSteps`). Files still go through the direct `inngest.sandboxes` client inside the upload and score steps: `step.sandbox` has no upload or download, and its exec output is capped and stored in step state (the runner's JSONL is >1MB). The sandbox name comes from the run id so replays reuse it. A `sandbox_exec_timed_out` is read off the step error and still scores as a timeout. `rebaseline-<i>` stays one `step.run` (old `runCheckSandbox`), and `baseline` split into `baseline-init` + the check. `backend()` is memoized in `settings`. Step budget per backend: 10 per iteration and 13 reserved local (cap 98), 14 and 21 sandbox (cap 69).
+- Checks: typecheck, `check:harness`, `check:selftest`, `check:tools` pass. Not yet run against Cloud.

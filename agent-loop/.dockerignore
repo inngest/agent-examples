@@ -1,0 +1,9 @@
+node_modules
+workspace
+.inngest
+.env
+check/.tmp
+golden
+go.work
+Dockerfile
+.dockerignore

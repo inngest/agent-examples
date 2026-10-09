@@ -1,0 +1,40 @@
+{
+  "countsByFn": {
+    "holdout": {
+      "Build": 404,
+      "Canonical": 416,
+      "Compare": 939,
+      "IsValid": 397,
+      "Major": 413,
+      "MajorMinor": 404,
+      "Max": 894,
+      "Prerelease": 403,
+      "Sort": 185
+    },
+    "train": {
+      "Build": 1636,
+      "Canonical": 1624,
+      "Compare": 3591,
+      "IsValid": 1643,
+      "Major": 1627,
+      "MajorMinor": 1636,
+      "Max": 3636,
+      "Prerelease": 1637,
+      "Sort": 722
+    }
+  },
+  "curatedInputs": 140,
+  "holdout": 4455,
+  "idDerivation": "content-derived, not index-derived",
+  "poolInputs": 2040,
+  "rng": "math/rand/v2 PCG",
+  "seed": [
+    1592614637,
+    3237998146
+  ],
+  "sortSemantics": "semver.Sort sorts in place; expected is the sorted list",
+  "splitRule": "holdout iff fnv32(id) % 5 == 0; id = \"c_\" + hex(sha256(fn + \"\\x00\" + json(args))[:6])",
+  "total": 22207,
+  "train": 17752,
+  "xModVersion": "v0.21.0"
+}

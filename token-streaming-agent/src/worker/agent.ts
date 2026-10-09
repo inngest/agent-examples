@@ -1,22 +1,21 @@
-import Anthropic from "@anthropic-ai/sdk";
-import type { GetStepTools } from "inngest";
+import type OpenAI from "openai";
+import { NonRetriableError, type GetStepTools, type Logger } from "inngest";
 import { toolDefinitions, executeTool } from "./tools";
+import { openrouter } from "./openrouter";
 import { inngest } from "../inngest/client";
 import { chatChannel, type ChatMessage } from "../inngest/channel";
 
-// The SDK reads ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL from the
-// environment itself, so no manual client configuration is needed here.
-const client = new Anthropic();
-
-// Tuned for Claude (Haiku through Opus): explicit trigger conditions per tool
-// (recent Claude models reach for tools conservatively unless told when),
-// parallel calls encouraged, and output style matched to the UI, which
-// renders plain text — markdown would show up as literal asterisks.
+// Tuned for the OpenRouter models the experiment buckets into (see MODEL_A /
+// MODEL_B in chat-function.ts): explicit trigger conditions per tool (so the
+// models reach for tools instead of answering from memory), parallel calls
+// encouraged, and output style matched to the UI, which renders Markdown.
 const SYSTEM_PROMPT = `You are a friendly assistant in a live chat UI.
 
-When a question involves current weather, temperature unit conversion, or the current date or time — including follow-up questions later in the conversation — call the matching tool (get_weather, convert_to_celsius, convert_to_fahrenheit, get_current_time) and answer from its result. get_weather reports Celsius; when the user wants Fahrenheit, follow it with convert_to_fahrenheit rather than converting yourself. When one message asks about several independent things, call the tools in parallel in a single turn. Answer everything else directly from your own knowledge.
+When a question involves current weather, temperature unit conversion, or the current date or time — including follow-up questions later in the conversation — call the matching tool (get_weather, get_weather_multi, convert_to_celsius, convert_to_fahrenheit, get_current_time) and answer from its result. get_weather reports Celsius; when the user wants Fahrenheit, follow it with convert_to_fahrenheit rather than converting yourself. For weather in several cities, you can call get_weather once per city or get_weather_multi with all of them at once. When one message asks about several independent things, call the tools in parallel in a single turn. Answer everything else directly from your own knowledge.
 
-Keep replies short and conversational: a sentence or two, more only when the question genuinely needs it. The chat renders plain text, so write prose without markdown formatting, headings, or tables.`;
+When answering a weather question needs computation over the daily history — trends, averages or other aggregates, correlations, or filtering across the ~30-day series — call run_python with the relevant cities and a short script. The readings arrive as a variable \`weather\` (a list of the same objects get_weather_multi returns) and whatever your script prints comes back to you. This runs in a restricted interpreter: only the json, datetime, and re modules can be imported, and there are no third-party packages (no numpy or pandas), no classes, and no match statements — use plain loops, comprehensions, and builtins.
+
+Keep replies short and conversational: a sentence or two, more only when the question genuinely needs it. The chat renders Markdown, so you may use light formatting — short lists, **bold**, \`code\`, and small tables — when it genuinely makes an answer clearer, but skip it for simple one- or two-line replies.`;
 
 // Batch window for streamed token deltas: each publish is one HTTP POST, so
 // this trades a little latency for far fewer round trips than publishing
@@ -27,20 +26,59 @@ const BATCH_MS = 40;
 // never stops calling tools) — bounds both cost and worst-case run time.
 const MAX_TURNS = 8;
 
-// Both experiment variants (Haiku 4.5 and Opus 4.8, see chat-function.ts) are
-// 200k-context models. Published with per-turn usage so the UI's context
-// meter needs no model knowledge; revisit if a variant changes.
-const CONTEXT_WINDOW = 200_000;
+// Per-response output cap sent as the API `max_tokens`. Configurable so it can
+// be tuned per deployment; also published on `turn.completed` (as `maxTokens`)
+// so the UI can reserve it from the context window when drawing the meter.
+const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 11496;
+
+// The browser keeps every realtime status message and re-derives its view on
+// each one, so an unbounded tool payload — a big multi-city weather blob, or a
+// dataset a model inlined into a run_python `code` argument — bloats the tab and
+// can OOM it. Clip what's PUBLISHED to the UI; the model still receives the full
+// tool output in history (see the `messages.push` below), so answer quality is
+// unaffected — only the live trace view is bounded.
+const UI_MAX_CHARS = 4000;
+
+function clipUiString(s: string): string {
+  return s.length > UI_MAX_CHARS ? `${s.slice(0, UI_MAX_CHARS)}…[${s.length - UI_MAX_CHARS} more chars]` : s;
+}
+
+// Deep-clip every string in a tool input (arguments the model emitted) for the
+// UI copy, leaving structure intact so the trace still shows shape.
+function clipUiInput(value: unknown): unknown {
+  if (typeof value === "string") return clipUiString(value);
+  if (Array.isArray(value)) return value.map(clipUiInput);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = clipUiInput(v);
+    return out;
+  }
+  return value;
+}
 
 type Step = GetStepTools<typeof inngest>;
 type Channel = ReturnType<typeof chatChannel>;
 
-function extractText(content: Anthropic.ContentBlock[]): string {
-  return content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-}
+// One tool call the model asked for this turn. `arguments` is the raw JSON
+// string (replayed verbatim in the assistant message so history stays valid);
+// `input` is the parsed object (passed to executeTool and used by the
+// tool-efficiency scorer). `parsedOk` records whether the model emitted
+// well-formed JSON arguments — a tool-emit-quality signal the validity scorer
+// reads.
+type PendingToolCall = {
+  id: string;
+  name: string;
+  arguments: string;
+  input: unknown;
+  parsedOk: boolean;
+};
+
+type TurnResult = {
+  text: string;
+  toolCalls: PendingToolCall[];
+  finishReason: string | null;
+  usage: { inputTokens: number; outputTokens: number };
+};
 
 // Runs one model turn as a single durable step. Streaming to the browser is a
 // side effect of that step (non-durable `inngest.realtime.publish` calls) —
@@ -51,12 +89,16 @@ async function streamTurn(
   step: Step,
   ch: Channel,
   turn: number,
-  messages: Anthropic.MessageParam[],
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   model: string,
-): Promise<Anthropic.Message> {
+): Promise<TurnResult> {
   const result = await step.run(`llm-turn-${turn}`, async () => {
     let seq = 0;
+    // `buffer` holds only the current un-published batch (cleared on flush);
+    // `fullText` accumulates the whole turn for the durable `turn.completed`
+    // fallback and the recorded assistant message.
     let buffer = "";
+    let fullText = "";
     let timer: ReturnType<typeof setTimeout> | null = null;
     const pending: Promise<unknown>[] = [];
 
@@ -78,25 +120,80 @@ async function streamTurn(
       );
     };
 
-    const stream = client.messages.stream({
+    const stream = await openrouter.chat.completions.create({
       model,
-      // Both experiment variants (Haiku 4.5 and Opus 4.8) stream and support
-      // ≥64K max output tokens; 16K leaves ample room for ~20 parallel tool
-      // calls plus a long final answer in one turn while keeping worst-case
-      // cost bounded alongside MAX_TURNS.
-      max_tokens: 16384,
-      system: SYSTEM_PROMPT,
-      tools: toolDefinitions,
+      // Per-response output cap (configurable via MAX_OUTPUT_TOKENS). Leaves
+      // room for parallel tool calls plus a final answer in one turn while
+      // keeping worst-case cost bounded alongside MAX_TURNS.
+      max_tokens: MAX_OUTPUT_TOKENS,
       messages,
+      tools: toolDefinitions,
+      stream: true,
+      // OpenRouter only returns token usage on a trailing usage-only chunk
+      // when this is set — the UI's context meter depends on it.
+      stream_options: { include_usage: true },
     });
 
-    stream.on("text", (delta) => {
-      buffer += delta;
-      timer ??= setTimeout(flush, BATCH_MS);
-    });
+    // Tool-call deltas arrive fragmented across chunks, keyed by `index`: the
+    // first carries id + name, later ones append to `arguments`. Accumulate by
+    // index, then parse once the stream ends.
+    const toolAcc = new Map<number, { id: string; name: string; args: string }>();
+    let finishReason: string | null = null;
+    let usage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
 
     try {
-      return await stream.finalMessage();
+      for await (const chunk of stream) {
+        if (chunk.usage) {
+          usage = {
+            inputTokens: chunk.usage.prompt_tokens ?? 0,
+            outputTokens: chunk.usage.completion_tokens ?? 0,
+          };
+        }
+        const choice = chunk.choices[0];
+        if (!choice) continue; // usage-only trailing chunk has no choices
+
+        if (choice.delta.content) {
+          buffer += choice.delta.content;
+          fullText += choice.delta.content;
+          timer ??= setTimeout(flush, BATCH_MS);
+        }
+
+        for (const tc of choice.delta.tool_calls ?? []) {
+          let acc = toolAcc.get(tc.index);
+          if (!acc) {
+            acc = { id: "", name: "", args: "" };
+            toolAcc.set(tc.index, acc);
+          }
+          if (tc.id) acc.id = tc.id;
+          if (tc.function?.name) acc.name = tc.function.name;
+          if (tc.function?.arguments) acc.args += tc.function.arguments;
+        }
+
+        if (choice.finish_reason) finishReason = choice.finish_reason;
+      }
+
+      const toolCalls: PendingToolCall[] = [...toolAcc.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, acc]) => {
+          // A parse failure is a model-output problem, not a transient one, so
+          // fall back to an empty object rather than throwing (which would
+          // retry the step and reproduce the same unparseable args). The tool
+          // handlers coerce/validate their own inputs. Empty args are valid
+          // for a no-parameter tool, so only a JSON.parse failure counts as a
+          // malformed emit — `parsedOk` records it so the validity scorer can
+          // catch models that emit broken tool-call arguments.
+          let input: unknown = {};
+          let parsedOk = true;
+          try {
+            input = acc.args ? JSON.parse(acc.args) : {};
+          } catch {
+            input = {};
+            parsedOk = false;
+          }
+          return { id: acc.id, name: acc.name, arguments: acc.args || "{}", input, parsedOk };
+        });
+
+      return { text: fullText, toolCalls, finishReason, usage } satisfies TurnResult;
     } finally {
       // Always cancel a pending batch so no flush fires after the step
       // settles — on failure, a stray timer would otherwise publish stale
@@ -108,178 +205,204 @@ async function streamTurn(
     }
   });
 
-  // step.run JSON-round-trips the result, but it's really this shape.
-  return result as unknown as Anthropic.Message;
+  return result as unknown as TurnResult;
 }
 
-// A max_tokens cutoff (or, at the bottom of the loop, the MAX_TURNS cap) can
-// leave `tool_use` blocks in the recorded history with no matching
-// `tool_result` — the block was cut off mid-emission, or stripped above
-// because it was incomplete. The API rejects a replayed history containing
-// an orphaned tool_use block, so this drops any block whose id has no
-// matching tool_result anywhere in the run, and drops a message entirely if
-// that empties its content — both are required before `newMessages` is
-// handed to the client for replay on the next request.
-//
-// The reverse direction — a tool_result whose tool_use is missing — is
-// unhandled by design: it's unreachable today because a tool_result is only
-// ever pushed immediately after executing its tool_use within the same run
-// (an executeTool failure aborts to run.failed before newMessages is ever
-// published). If the loop ever records results across runs or skips a tool
-// after recording its tool_use, add the symmetric filter here.
-function sanitizeNewMessages(msgs: Anthropic.MessageParam[]): ChatMessage[] {
-  const resultIds = new Set<string>();
-  for (const msg of msgs) {
-    if (!Array.isArray(msg.content)) continue;
-    for (const block of msg.content) {
-      if (block.type === "tool_result") resultIds.add(block.tool_use_id);
-    }
-  }
-
-  const sanitized: ChatMessage[] = [];
-  for (const msg of msgs) {
-    // MessageParam["role"] also allows "system" (mid-conversation system
-    // blocks), a feature this app never uses — every message pushed onto
-    // `messages` in runChatAgent is "assistant" or "user", so the cast is
-    // safe for anything this function is actually called with.
-    const role = msg.role as "user" | "assistant";
-    if (!Array.isArray(msg.content)) {
-      sanitized.push({ role, content: msg.content });
-      continue;
-    }
-    const content = msg.content.filter((block) => block.type !== "tool_use" || resultIds.has(block.id));
-    if (content.length === 0) continue;
-    sanitized.push({ role, content });
-  }
-  return sanitized;
-}
-
-export type ToolCall = { name: string; input: unknown };
+// Carries the emit-quality signal (`argsRaw`, `parsedOk`) alongside the parsed
+// input so the tool-call-validity scorer can grade how well each model emits
+// tool calls — see scorers.ts.
+export type ToolCall = { name: string; input: unknown; argsRaw: string; parsedOk: boolean };
 
 export async function runChatAgent(
   step: Step,
   sessionId: string,
   history: ChatMessage[],
   model: string,
-): Promise<{ text: string; toolCalls: ToolCall[] }> {
+  contextWindow: number,
+  variant: string,
+  logger: Logger,
+): Promise<{ text: string; toolCalls: ToolCall[]; newMessages: ChatMessage[] }> {
   const ch = chatChannel(sessionId);
-  const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
+  // The worker owns the system prompt (the client transcript never includes
+  // it), so it's prepended fresh on every request.
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...history,
+  ];
   // Everything from here on is new — recorded so `newMessages` (published
   // alongside `run.completed`) can hand the client exactly what this run
-  // appended, without re-sending history the client already has.
+  // appended, without re-sending history the client already has (or the
+  // system message, which the worker adds itself).
   const historyLength = messages.length;
 
-  let lastText = "";
+  // The most recent turn that produced visible text. Some models emit their
+  // prose in the same turn as their tool calls and then return an *empty* final
+  // turn after the tool results — so the last turn's text can be "" even though
+  // the model did answer. Tracking the last non-empty text lets the run surface
+  // that answer instead of committing a blank reply (the bubble, recovery via
+  // /api/run-status, and the judge scores all read the returned `text`).
+  let lastNonEmptyText = "";
   const toolCalls: ToolCall[] = [];
 
-  await step.realtime.publish("run-started", ch.status, { type: "run.started" });
+  await step.realtime.publish("run-started", ch.status, { type: "run.started", variant, model });
+  // Logs go through the Inngest ctx logger (passed from the handler), which
+  // de-duplicates across step memoization/retries — plain console.log here
+  // would repeat on every function resume.
+  logger.info("agent: run start", { sessionId, variant, model });
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       const response = await streamTurn(step, ch, turn, messages, model);
+      const text = response.text;
+      if (text.trim()) lastNonEmptyText = text;
 
-      messages.push({ role: "assistant", content: response.content });
+      logger.info("agent: turn done", {
+        turn,
+        finishReason: response.finishReason,
+        outputTokens: response.usage.outputTokens,
+        toolCalls: response.toolCalls.length,
+      });
 
-      const text = extractText(response.content);
-      lastText = text;
+      const usage = {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        contextWindow,
+        // Published so the UI can reserve the output budget from the window.
+        maxTokens: MAX_OUTPUT_TOKENS,
+      };
+
+      // A "length" cutoff can't be treated as a clean finish: the model was
+      // cut off mid-turn, so any tool_calls it started may be incomplete. An
+      // assistant message with unmatched tool_calls makes the replayed history
+      // invalid on the next request, so record a text-only assistant turn (a
+      // visible truncation marker) instead and surface it.
+      if (response.finishReason === "length") {
+        const marker = "\n\n[Response truncated — output token limit reached.]";
+        const finalText = text ? text + marker : marker;
+        messages.push({ role: "assistant", content: finalText });
+        await step.realtime.publish(`turn-completed-${turn}`, ch.status, {
+          type: "turn.completed",
+          turn,
+          text,
+          usage,
+        });
+        const newMessages = messages.slice(historyLength);
+        await step.realtime.publish("run-completed", ch.status, {
+          type: "run.completed",
+          text: finalText,
+          newMessages,
+        });
+        return { text: finalText, toolCalls, newMessages };
+      }
+
+      const hasToolCalls = response.finishReason === "tool_calls" && response.toolCalls.length > 0;
+
+      // Record the assistant turn exactly as the API shape requires: an
+      // assistant message carrying its `tool_calls` (content null when it only
+      // called tools), which the tool-result messages below must then answer.
+      messages.push(
+        hasToolCalls
+          ? {
+              role: "assistant",
+              content: text || null,
+              tool_calls: response.toolCalls.map((tc) => ({
+                id: tc.id,
+                type: "function" as const,
+                function: { name: tc.name, arguments: tc.arguments },
+              })),
+            }
+          : { role: "assistant", content: text },
+      );
+
       await step.realtime.publish(`turn-completed-${turn}`, ch.status, {
         type: "turn.completed",
         turn,
         text,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-          contextWindow: CONTEXT_WINDOW,
-        },
+        usage,
       });
 
-      // A max_tokens cutoff can't be treated as a clean finish: the model was
-      // cut off mid-turn, not at a natural stopping point, so any tool_use
-      // blocks it started emitting may be incomplete (missing input fields,
-      // or missing entirely if the cut fell before the block closed). Strip
-      // them from the message just pushed above — an unpaired tool_use block
-      // makes the replayed history invalid on the next API call — and surface
-      // a visible marker so the truncation is never mistaken for a complete
-      // answer.
-      if (response.stop_reason === "max_tokens") {
-        const assistantMessage = messages[messages.length - 1]!;
-        if (Array.isArray(assistantMessage.content)) {
-          assistantMessage.content = assistantMessage.content.filter((b) => b.type !== "tool_use");
-        }
-        const marker = "\n\n[Response truncated — output token limit reached.]";
-        const finalText = text ? text + marker : marker;
+      // Anything that isn't a tool-call turn ends the run — including finish
+      // reasons this SDK version doesn't know about yet. Treating "unknown" as
+      // "done" is the safe default: it surfaces whatever text came back instead
+      // of looping forever waiting for a tool call that isn't coming.
+      if (!hasToolCalls) {
+        // Fall back to the last turn that actually produced text: a model that
+        // said its piece alongside its tool calls and then returned an empty
+        // final turn would otherwise commit a blank bubble.
+        const finalText = text.trim() ? text : lastNonEmptyText;
+        const newMessages = messages.slice(historyLength);
         await step.realtime.publish("run-completed", ch.status, {
           type: "run.completed",
           text: finalText,
-          newMessages: sanitizeNewMessages(messages.slice(historyLength)),
+          newMessages,
         });
-        return { text: finalText, toolCalls };
+        return { text: finalText, toolCalls, newMessages };
       }
 
-      // Anything other than "tool_use" ends the turn — including stop_reason
-      // values this SDK version doesn't know about yet. Treating "unknown" as
-      // "done" is the safe default: it surfaces whatever text came back
-      // instead of looping forever waiting for a tool call that isn't coming.
-      if (response.stop_reason !== "tool_use") {
-        await step.realtime.publish("run-completed", ch.status, {
-          type: "run.completed",
-          text,
-          newMessages: sanitizeNewMessages(messages.slice(historyLength)),
+      for (let i = 0; i < response.toolCalls.length; i++) {
+        const call = response.toolCalls[i]!;
+        toolCalls.push({
+          name: call.name,
+          input: call.input,
+          argsRaw: call.arguments,
+          parsedOk: call.parsedOk,
         });
-        return { text, toolCalls };
-      }
 
-      const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-
-      for (let i = 0; i < toolUses.length; i++) {
-        const block = toolUses[i]!;
-        toolCalls.push({ name: block.name, input: block.input });
-
+        logger.info("agent: tool call", { turn, name: call.name, input: call.input });
         await step.realtime.publish(`tool-called-${turn}-${i}`, ch.status, {
           type: "tool.called",
           turn,
-          name: block.name,
-          input: block.input,
+          name: call.name,
+          input: clipUiInput(call.input),
         });
 
-        const output = await step.run(`tool-${block.name}-${turn}-${i}`, () =>
-          executeTool(block.name, block.input),
+        const output = await step.run(`tool-${call.name}-${turn}-${i}`, () =>
+          executeTool(call.name, call.input),
         );
 
         await step.realtime.publish(`tool-result-${turn}-${i}`, ch.status, {
           type: "tool.result",
           turn,
-          name: block.name,
-          output,
+          name: call.name,
+          output: clipUiString(output),
         });
 
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: output });
+        // Each tool_call must be answered by a `tool` message carrying its
+        // `tool_call_id`, or the next request's history is invalid.
+        messages.push({ role: "tool", tool_call_id: call.id, content: output });
       }
-
-      messages.push({ role: "user", content: toolResults });
     }
 
-    // Turn cap reached without a natural stop: surface whatever the last
-    // turn produced instead of hanging or silently truncating. This path
-    // always ends on a user tool_result message (the loop just pushed one at
-    // the bottom of the last iteration), which is valid history on its own —
-    // consecutive user messages are fine — so it needs no special-casing in
-    // sanitizeNewMessages beyond what every other path already gets.
-    const fallbackText = lastText || "(turn limit reached without a final response)";
+    // Turn cap reached without a natural stop: surface whatever the last turn
+    // produced instead of hanging or silently truncating. This path always
+    // ends on `tool` messages (the loop just pushed them at the bottom of the
+    // last iteration), which is valid history on its own.
+    const fallbackText = lastNonEmptyText || "(turn limit reached without a final response)";
+    const newMessages = messages.slice(historyLength);
     await step.realtime.publish("run-completed", ch.status, {
       type: "run.completed",
       text: fallbackText,
-      newMessages: sanitizeNewMessages(messages.slice(historyLength)),
+      newMessages,
     });
-    return { text: fallbackText, toolCalls };
+    return { text: fallbackText, toolCalls, newMessages };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    // Client-level, non-durable publish: the function is about to fail and
-    // rethrow, so there's nothing left to memoize against — just get the
-    // notice out before the run ends. This is best-effort and must never
-    // mask the real failure, which is rethrown on the next line regardless.
-    await inngest.realtime.publish(ch.status, { type: "run.failed", error }).catch(() => {});
+    logger.error("agent: run failed", { sessionId, variant, model, error });
+    // The UI is *not* notified here: this catch runs on every failed attempt,
+    // and the run may still retry and succeed. The terminal `run.failed` notice
+    // is published exactly once from the function's `onFailure` handler (see
+    // chat-function.ts), after all retries are exhausted — so a transient error
+    // no longer surfaces as a permanent failure the client commits early.
+    //
+    // Retry classification: the OpenRouter/OpenAI SDK throws with a numeric
+    // `.status`. A 4xx (except 429 rate-limit) is a bad request — invalid
+    // history, unknown model — that will fail identically on retry, so fail
+    // fast to `onFailure` instead of burning the whole retry budget. 5xx,
+    // network errors, and 429 stay retriable (rethrown as-is).
+    const status = (err as { status?: number })?.status;
+    if (typeof status === "number" && status >= 400 && status < 500 && status !== 429) {
+      throw new NonRetriableError(`model request rejected (${status}): ${error}`);
+    }
     throw err;
   }
 }
