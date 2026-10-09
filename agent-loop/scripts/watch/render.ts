@@ -128,7 +128,9 @@ function turnSummary(m: Extract<Step, { type: "turn" }>) {
   const why =
     m.finishReason !== "length"
       ? ""
-      : reasoning >= m.outputTokens / 2
+      : m.blank
+        ? ` (cut off: ${kTok(m.outputTokens)} of whitespace)`
+        : reasoning >= m.outputTokens / 2
         ? ` (cut off while reasoning: ${kTok(reasoning)} of ${kTok(m.outputTokens)})`
         : " (cut off at the token limit)";
   return c.yellow(`no tool call${why}`);

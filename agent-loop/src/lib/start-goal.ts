@@ -2,7 +2,7 @@
 // Targets the dev server or Inngest Cloud depending on env (INNGEST_DEV=1 vs
 // INNGEST_EVENT_KEY).
 import { inngest } from "../inngest/client.js";
-import { goalStarted, type BriefVariant } from "../inngest/events.js";
+import { goalStarted, VARIANT_NAMES, type BriefVariant } from "../inngest/events.js";
 
 export type GoalOptions = {
   goalId: string;
@@ -22,6 +22,7 @@ export type GoalOptions = {
 // --max-tokens, --reasoning-effort low|medium|high, --reasoning-max-tokens,
 // --no-focus (attempts see the whole report instead of one function),
 // --spec (Go's documentation in the brief), --examples N (examples per brief).
+// --variant control|spec|examples|no_focus (the "brief" experiment).
 export function parseGoalArgs(argv: string[]): Partial<GoalOptions> {
   const args = argv.filter((a) => a !== "--");
   const get = (flag: string) => {
@@ -44,6 +45,7 @@ export function parseGoalArgs(argv: string[]): Partial<GoalOptions> {
     focus: args.includes("--no-focus") ? false : undefined,
     spec: args.includes("--spec") ? true : undefined,
     examplesPerBrief: num("--examples"),
+    variant: VARIANT_NAMES.find((v) => v === get("--variant")),
   };
 }
 

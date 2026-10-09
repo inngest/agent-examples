@@ -6,9 +6,9 @@ import { inngest } from "./client.js";
 import { agentAttempt, isAttemptResult } from "./agent-attempt.js";
 import { BRIEF_VARIANTS, DEFAULT_MODEL, GOAL_DEFAULTS, VARIANT_NAMES, goalAttemptScored, goalFinished, goalReviewSubmitted, goalStarted } from "./events.js";
 import { runCheck } from "../../check/run-check.js";
-import { runCheckSandbox } from "../../check/run-check-sandbox.js";
+import { runCheckSandbox, runCheckSandboxSteps } from "../../check/run-check-sandbox.js";
 import type { CaseSet, CheckResult } from "../../check/types.js";
-import { backend, type Files } from "../lib/backend.js";
+import { backend, type Backend, type Files } from "../lib/backend.js";
 import { recordScores } from "../lib/score.js";
 import { pickFocus, unimplemented } from "../lib/prompt.js";
 import { liveLoop } from "../lib/live.js";
@@ -23,19 +23,16 @@ import { excerpt } from "./channel.js";
 // (invoke, scored event, score, live publish), 5-6 when it did (+ check,
 // + revert unless kept, + rebaseline if the check itself changed mid-run),
 // and 3 more when it ends in a review wait (live, wait, live): at most 10.
-// The reserve covers experiment select, the variant step, settings, baseline,
-// live-started, holdout, score-final, finished and live-finished.
+// The reserve covers experiment select, the variant step, settings,
+// baseline-init, baseline, live-started, holdout, score-final, finished and
+// live-finished. On the sandbox backend a check is 5 steps (sandbox, upload,
+// exec, score, destroy) instead of 1, except the rebaseline, which stays one
+// step: so 14 per iteration, and baseline and holdout cost 4 more each (21
+// reserved). Caps: 98 attempts local, 69 sandbox.
 const STEP_LIMIT = 1000;
-const STEPS_PER_ITERATION = 10;
-const RESERVED_STEPS = 12;
-const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_ITERATION); // 98
-
-// `against`: the best result's failBits, so the check reports the cases this
-// attempt broke (train only).
-const check = (at: { commit: string; files?: Files }, set: CaseSet, against?: string): Promise<CheckResult> =>
-  backend() === "sandbox"
-    ? runCheckSandbox({ files: at.files ?? {}, ref: at.commit, set, against })
-    : runCheck({ commit: at.commit, set, against });
+const STEPS_PER_ITERATION = { local: 10, sandbox: 14 };
+const RESERVED_STEPS = { local: 13, sandbox: 21 };
+const maxAttemptsCap = (b: Backend): number => Math.floor((STEP_LIMIT - RESERVED_STEPS[b]) / STEPS_PER_ITERATION[b]);
 
 export const goalLoop = inngest.createFunction(
   {
@@ -45,7 +42,6 @@ export const goalLoop = inngest.createFunction(
   },
   async ({ event, step, group, runId }) => {
     const { goalId } = event.data;
-    const maxAttempts = Math.min(event.data.maxAttempts ?? GOAL_DEFAULTS.maxAttempts, MAX_ATTEMPTS_CAP);
     const maxStalls = event.data.maxStalls ?? GOAL_DEFAULTS.maxStalls;
 
     // A run with a variant takes its brief options from the "brief" experiment
@@ -82,6 +78,8 @@ export const goalLoop = inngest.createFunction(
       return {
         model,
         profile,
+        // Which grader, fixed for the run (step ids and the step cap depend on it).
+        backend: backend(),
         // Opt-in: Go's documentation for the brief, read here so a replay
         // sees the same text even if a redeploy changed the file.
         spec: brief.spec ? fs.readFileSync(path.join(DATA_DIR, "spec.txt"), "utf8") : undefined,
@@ -96,7 +94,24 @@ export const goalLoop = inngest.createFunction(
         },
       };
     });
-    const { model, profile } = settings;
+    const { model, profile, backend: kind } = settings;
+    const maxAttempts = Math.min(event.data.maxAttempts ?? GOAL_DEFAULTS.maxAttempts, maxAttemptsCap(kind));
+
+    // `against`: the best result's failBits, so the check reports the cases
+    // this attempt broke (train only). Called at function level: the sandbox
+    // flavour is several steps (see run-check-sandbox.ts), the local one a
+    // single step.run. The sandbox name is derived from the run id so a replay
+    // reuses it.
+    const check = (id: string, at: { commit: string; files?: Files }, set: CaseSet, against?: string): Promise<CheckResult> =>
+      kind === "sandbox"
+        ? runCheckSandboxSteps(step, id, {
+            files: at.files ?? {},
+            ref: at.commit,
+            set,
+            against,
+            name: `goal-loop-${runId.slice(-8).toLowerCase()}-${id}`,
+          })
+        : step.run(id, () => runCheck({ commit: at.commit, set, against }));
     if (!profile.supportsTools) {
       await liveLoop(step, "live-unsupported", goalId, {
         type: "goal.failed",
@@ -107,12 +122,9 @@ export const goalLoop = inngest.createFunction(
       throw new NonRetriableError(profile.missing ? `${model} is not on OpenRouter` : `${model} has no OpenRouter endpoint that supports tools with tool_choice`);
     }
 
-    const ws = workspace();
-    const baseline: Best = await step.run("baseline", async () => {
-      const at = await ws.initial();
-      const result = await check(at, "train");
-      return at.files ? { ...result, files: at.files } : result;
-    });
+    const ws = workspace(kind);
+    const initial = await step.run("baseline-init", () => ws.initial());
+    const baseline: Best = { ...(await check("baseline", initial, "train")), ...(initial.files ? { files: initial.files } : {}) };
 
     await liveLoop(step, "live-started", goalId, {
       type: "goal.started",
@@ -172,7 +184,7 @@ export const goalLoop = inngest.createFunction(
       // `best`: skip the check. `changed` is memoized from the invoke, so the
       // step ids stay deterministic.
       const result: CheckResult = attempt.changed
-        ? await step.run(`check-${i}`, () => check({ commit: attempt.commit, files: attempt.files }, "train", best.failBits))
+        ? await check(`check-${i}`, { commit: attempt.commit, files: attempt.files }, "train", best.failBits)
         : best;
 
       await step.sendEvent(
@@ -201,7 +213,11 @@ export const goalLoop = inngest.createFunction(
       // during an unchanged attempt is picked up by the next changed one.
       const rebaselined =
         attempt.changed && result.checkVersion !== best.checkVersion
-          ? await step.run(`rebaseline-${i}`, () => check(best, "train"))
+          ? await step.run(`rebaseline-${i}`, () =>
+              kind === "sandbox"
+                ? runCheckSandbox({ files: best.files ?? {}, ref: best.commit, set: "train" })
+                : runCheck({ commit: best.commit, set: "train" }),
+            )
           : undefined;
 
       // Keep or revert, and carry the context forward.
@@ -275,7 +291,7 @@ export const goalLoop = inngest.createFunction(
 
     // Scored once, on the final best commit; never shown to an agent.
     const { best, costUsd, tokens } = state;
-    const holdout = await step.run("holdout", () => check(best, "holdout"));
+    const holdout = await check("holdout", best, "holdout");
     // Run-scoped, and attributed to the experiment when there is one. Per
     // function: train only, which is all the check reports per function.
     await recordScores(

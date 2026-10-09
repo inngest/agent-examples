@@ -6,7 +6,7 @@ import { excerpt } from "./channel.js";
 import { buildBrief, SYSTEM_PROMPT, type BriefInput } from "../lib/prompt.js";
 import { liveAttempt, liveAttemptInStep } from "../lib/live.js";
 import { buildRequest, callModel, modelEndpoint } from "../lib/model-call.js";
-import { assistantMessage, EMPTY_FINISH_REFUSAL, idleNudge, LAST_TURN_WARNING, toolCalls, type Msg } from "../lib/history.js";
+import { assistantMessage, EMPTY_FINISH_REFUSAL, idleNudge, LAST_TURN_WARNING, toolCalls, whitespaceRunaway, type Msg } from "../lib/history.js";
 import { ReasoningLadder, type Learned } from "../lib/reasoning-ladder.js";
 import { workspace } from "../lib/workspace.js";
 
@@ -174,6 +174,7 @@ export const agentAttempt = inngest.createFunction(
         reasoningTokens: res.usage?.completion_tokens_details?.reasoning_tokens,
         maxTokens: turn.maxTokens,
         ...(turn.reasoningOff ? { reasoningOff: true } : {}),
+        ...(whitespaceRunaway(res) ? { blank: true } : {}),
         inputTokens: res.usage?.prompt_tokens ?? 0,
         provider: res.provider,
       });

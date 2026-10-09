@@ -24,7 +24,7 @@ export type ChatResponse = {
   id?: string;
   model?: string;
   provider?: string;
-  choices?: { message?: { content?: string | null; tool_calls?: unknown[] }; finish_reason?: string }[];
+  choices?: { message?: { content?: string | null; reasoning?: string | null; tool_calls?: unknown[] }; finish_reason?: string }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number; completion_tokens_details?: { reasoning_tokens?: number } };
   error?: { message?: string; code?: number };
 };

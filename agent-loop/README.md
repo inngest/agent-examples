@@ -48,7 +48,7 @@ goal/started
 |---|---|
 | `golden/` | Go program that generates the ground-truth cases from the real `semver` package (`go run ./golden`, byte-identical on rerun). |
 | `data/` | The 22,207 cases, split into **train** (17,752, what the loop scores against) and **holdout** (4,455, scored once at the end) by a hash of each case id. |
-| `check/` | The grader: runs a candidate `semver.ts` against the cases in a child process (`run-check.ts`, `runner.ts`, `score-core.ts`) or in a fresh [Inngest Sandbox](https://www.inngest.com/docs) (`run-check-sandbox.ts`), and builds the failure report the next attempt reads. Plus selftests. |
+| `check/` | The grader: runs a candidate `semver.ts` against the cases in a child process (`run-check.ts`, `runner.ts`, `score-core.ts`) or in a fresh [Inngest Sandbox](https://www.inngest.com/docs) (`run-check-sandbox.ts`), where each check shows in the run trace as `step.sandbox` create, exec and destroy steps plus upload and score steps, and builds the failure report the next attempt reads. Plus selftests. |
 | `src/inngest/goal-loop.ts` | The loop: settings, baseline, then per attempt: invoke, check, keep or revert, pause for review; holdout, `goal/finished`. |
 | `src/inngest/agent-attempt.ts` | One attempt: prepare the workspace, build the brief, the turn loop (model call → history → tools, each tool call its own step), commit. |
 | `src/inngest/tools.ts` | The six tools and their guard rails. |
@@ -212,6 +212,7 @@ Press `s` (when the goal has no run in flight) to open the start form, or run
 │   Focus                 on                                   │
 │   Go docs in brief      off                                  │
 │   Examples per brief    10 (default)                         │
+│   Brief experiment      off                                  │
 │                                                              │
 │   Type to edit, Ctrl+U to clear. A new id starts a new goal… │
 │                                                              │
@@ -224,9 +225,11 @@ starts. Starting under a different id than the one on screen switches the view
 to the new goal. Goal flags on the command line (the same ones `goal:send`
 takes: `--model`, `--max-attempts`, `--max-stalls`, `--max-tokens`,
 `--reasoning-effort`, `--reasoning-max-tokens`, `--no-focus`, `--spec`,
-`--examples N`) become the form's starting values; a `--model` slug that isn't
+`--examples N`, `--variant <name>`) become the form's starting values; a `--model` slug that isn't
 in the list is added to it. `--start` skips the form and starts with the flags
-as given (needs `--goal`).
+as given (needs `--goal`). **Brief experiment** runs the goal as one
+variant of the `brief` experiment (see Evals & experiments); the variant's
+options override Focus, Go docs and Examples.
 
 On the dev server with the local backend, starting resets the shared
 `workspace/` to the stubs first (the form says so). There is one workspace per
@@ -440,7 +443,8 @@ waits for its `goal/finished` (up to `--timeout-min`, default 10 per attempt), t
 ## Limits and gotchas
 
 - **Step limit.** Inngest caps a run at 1,000 steps, which caps a goal at 98
-  attempts. Chaining runs past that isn't built.
+  attempts on the local backend and 69 on the sandbox backend (a sandbox check
+  is 5 steps, not 1). Chaining runs past that isn't built.
 - **Outages longer than the retries.** State always survives a worker outage,
   but if the worker is gone longer than the retry window of the function that
   has to run next (about a minute for an attempt, about 4.5 minutes for the

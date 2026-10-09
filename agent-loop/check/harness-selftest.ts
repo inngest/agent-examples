@@ -5,7 +5,7 @@ import type { AttemptResult } from "../src/inngest/agent-attempt.js";
 import type { ChatResponse } from "../src/lib/model-call.js";
 import { ReasoningLadder, type LadderOptions } from "../src/lib/reasoning-ladder.js";
 import { afterAttempt, failedAttempt, initialState, JOURNAL_SIZE, type LoopState } from "../src/lib/loop-state.js";
-import { assistantMessage, cutOffThinking, idleNudge } from "../src/lib/history.js";
+import { assistantMessage, cutOffThinking, idleNudge, whitespaceRunaway } from "../src/lib/history.js";
 import { buildBrief } from "../src/lib/prompt.js";
 
 let failures = 0;
@@ -169,6 +169,18 @@ ok(cutOffThinking(thinkingCutoff) && !cutOffThinking(textCutoff), "history: cut 
 ok(idleNudge(chat) === "Use the tools, then call finish_attempt.", "nudge: plain chat turn");
 ok(idleNudge(thinkingCutoff).startsWith("You ran out of room for this turn while thinking (3500 of 4000"), "nudge: cut off while thinking");
 ok(idleNudge(textCutoff).startsWith("Your output was cut off before you made a tool call."), "nudge: cut off mid-text");
+const blankCutoff: ChatResponse = {
+  choices: [{ message: { content: "[" + " \n".repeat(2000) }, finish_reason: "length" }],
+  usage: { completion_tokens: 4000, completion_tokens_details: { reasoning_tokens: 0 } },
+};
+const blankThinking: ChatResponse = {
+  choices: [{ message: { content: null, reasoning: "\n".repeat(3000) }, finish_reason: "length" }],
+  usage: { completion_tokens: 4000, completion_tokens_details: { reasoning_tokens: 3500 } },
+};
+ok(whitespaceRunaway(blankCutoff) && whitespaceRunaway(blankThinking), "history: whitespace runaway (text or reasoning)");
+ok(!whitespaceRunaway(textCutoff) && !whitespaceRunaway(thinkingCutoff) && !whitespaceRunaway(chat), "history: not a whitespace runaway");
+ok(idleNudge(blankCutoff).startsWith("Your last turn used all 4000 output tokens on whitespace"), "nudge: whitespace runaway");
+ok(eq(assistantMessage(blankCutoff), { role: "assistant", content: "[" }), "history: whitespace runaway is trimmed");
 
 // --- brief options: --examples N and --spec
 {

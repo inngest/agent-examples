@@ -1,5 +1,5 @@
 import { Inngest } from "inngest";
-import { metadataMiddleware, scoreMiddleware } from "inngest/experimental";
+import { metadataMiddleware, sandboxMiddleware, scoreMiddleware } from "inngest/experimental";
 
 export const inngest = new Inngest({
   id: "goal-loop",
@@ -12,5 +12,8 @@ export const inngest = new Inngest({
     // inngest.metadata, used by src/lib/model-call.ts to attach `model_call`
     // metadata (provider, latency, tokens) to each turn.
     metadataMiddleware(),
+    // step.sandbox (check/run-check-sandbox.ts): the sandbox grader's create,
+    // exec and destroy show up as sandbox steps in the trace.
+    sandboxMiddleware(),
   ],
 });

@@ -4,7 +4,7 @@
 // off. Reasoning caps can't be trusted, but off works whatever control a model
 // has (see BUILD_LOG: reasoning ladder). Pure: it changes only in observe(),
 // from memoized responses, so a replay climbs it identically.
-import { cutOffThinking } from "./history.js";
+import { cutOffThinking, whitespaceRunaway } from "./history.js";
 import type { ChatResponse } from "./model-call.js";
 
 /** Most the ladder grows a turn's budget to when the model profile states no limit. */
@@ -78,7 +78,8 @@ export class ReasoningLadder {
     this.thinkingCutoffs++;
     // The first one only gets the nudge; after that, one rung per cut-off.
     if (this.thinkingCutoffs < 2) return undefined;
-    if (!this.raised && this.budget < this.o.maxTokensCap) {
+    // Reasoning that is only whitespace won't use a bigger budget any better: skip to reasoning off.
+    if (!this.raised && this.budget < this.o.maxTokensCap && !whitespaceRunaway(res)) {
       this.raised = this.escalated = true;
       this.budget = Math.min(this.o.maxTokensCap, this.budget * 2);
       return `cut off while reasoning again: turn budget → ${this.budget}`;

@@ -32,9 +32,10 @@ const isJsonObject = (s: string) => {
 export function assistantMessage(res: ChatResponse): Msg {
   const msg = res.choices?.[0]?.message;
   const calls = toolCalls(res);
+  // Trimmed, so a whitespace runaway (below) doesn't go back as thousands of blanks.
   return {
     role: "assistant",
-    content: msg?.content || (calls.length ? null : "(no output)"),
+    content: msg?.content?.trim() || (calls.length ? null : "(no output)"),
     ...(calls.length
       ? { tool_calls: calls.map((c) => (isJsonObject(c.function.arguments) ? c : { ...c, function: { ...c.function, arguments: "{}" } })) }
       : {}),
@@ -48,6 +49,21 @@ export const cutOffThinking = (res: ChatResponse): boolean => {
   return res.choices?.[0]?.finish_reason === "length" && out > 0 && reasoning >= out / 2;
 };
 
+// Mostly blank text: at least this long, and under 5% non-whitespace.
+const isBlankRun = (s: string | null | undefined): boolean =>
+  !!s && s.length >= 500 && s.replace(/\s/g, "").length < s.length * 0.05;
+
+/**
+ * Cut off at the token limit having written almost nothing but whitespace
+ * (in the text, or in the reasoning when the provider returns it). A stuck
+ * model does this under tool_choice "required": it opens a tool call ("[")
+ * and pads it with spaces and newlines until the budget runs out.
+ */
+export const whitespaceRunaway = (res: ChatResponse): boolean => {
+  const choice = res.choices?.[0];
+  return choice?.finish_reason === "length" && toolCalls(res).length === 0 && (isBlankRun(choice.message?.content) || isBlankRun(choice.message?.reasoning));
+};
+
 /**
  * What to say after a turn without a tool call. A turn cut off while mostly
  * reasoning needs "stop thinking and act", not "make a smaller edit": its
@@ -57,6 +73,8 @@ export const idleNudge = (res: ChatResponse): string => {
   if (res.choices?.[0]?.finish_reason !== "length") return "Use the tools, then call finish_attempt.";
   const out = res.usage?.completion_tokens ?? 0;
   const reasoning = res.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+  if (whitespaceRunaway(res))
+    return `Your last turn used all ${out} output tokens on whitespace and made no tool call. Don't write a tool call, JSON or code as text, and don't pad with spaces or newlines. Make one tool call now: a small edit_file on the function you are fixing.`;
   if (cutOffThinking(res))
     return `You ran out of room for this turn while thinking (${reasoning} of ${out} output tokens were reasoning), so no tool call was made, and that reasoning is not kept. Keep your thinking short and make the tool call right away. If the whole change doesn't fit, make the first part of it with edit_file now.`;
   return "Your output was cut off before you made a tool call. Make a smaller edit with edit_file instead.";

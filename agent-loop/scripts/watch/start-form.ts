@@ -3,7 +3,7 @@
 // Enter starts, Esc closes. Flags given on the command line become the form's
 // starting values, so `--spec` etc. still work as presets.
 import { matchesKey, truncateToWidth, visibleWidth, type Component } from "@mariozechner/pi-tui";
-import { GOAL_DEFAULTS } from "../../src/inngest/events.js";
+import { GOAL_DEFAULTS, VARIANT_NAMES } from "../../src/inngest/events.js";
 import type { GoalOptions } from "../../src/lib/start-goal.js";
 import { c } from "./format.js";
 
@@ -42,7 +42,7 @@ export class StartForm implements Component {
     const reasoning: Choice<Partial<GoalOptions>>[] = [
       { label: "worker default", value: {} },
       ...(["low", "medium", "high"] as const).map((e) => ({ label: `effort ${e}`, value: { reasoningEffort: e } })),
-      ...[2000, 5000, 10000].map((n) => ({ label: `budget ${n} tok`, value: { reasoningMaxTokens: n } })),
+      ...[2000, 5000, 8000, 16000].map((n) => ({ label: `budget ${n} tok`, value: { reasoningMaxTokens: n } })),
     ];
     this.rows = [
       { kind: "text", key: "goalId", label: "Goal id", value: p.goalId ?? "", help: "Type to edit, Ctrl+U to clear. A new id starts a new goal; an existing one restarts it." },
@@ -58,14 +58,14 @@ export class StartForm implements Component {
         label: `${p.maxStalls ?? GOAL_DEFAULTS.maxStalls}`,
         value: { maxStalls: p.maxStalls ?? GOAL_DEFAULTS.maxStalls },
       }),
-      choiceRow("maxTokensPerTurn", "Tokens per turn", "Output budget per model turn, reasoning included.", numbers("maxTokensPerTurn", [4000, 8000, 12000, 20000]), {
+      choiceRow("maxTokensPerTurn", "Tokens per turn", "Output budget per model turn, reasoning included.", numbers("maxTokensPerTurn", [4000, 8000, 12000, 20000, 32000]), {
         label: `${p.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn}`,
         value: { maxTokensPerTurn: p.maxTokensPerTurn ?? GOAL_DEFAULTS.maxTokensPerTurn },
       }),
       choiceRow(
         "reasoning",
         "Reasoning",
-        "A budget is capped at half the turn's tokens. Worker default: REASONING_* env, or none.",
+        "A budget is capped at half the turn's tokens so the tool call keeps room (16000 needs 32000 per turn). Worker default: REASONING_* env, or none.",
         reasoning,
         p.reasoningMaxTokens
           ? { label: `budget ${p.reasoningMaxTokens} tok`, value: { reasoningMaxTokens: p.reasoningMaxTokens } }
@@ -85,6 +85,10 @@ export class StartForm implements Component {
         { label: "10 (default)", value: {} },
         ...numbers("examplesPerBrief", [20, 40, 50]),
       ], p.examplesPerBrief ? { label: `${p.examplesPerBrief}`, value: { examplesPerBrief: p.examplesPerBrief } } : { label: "10 (default)", value: {} }),
+      choiceRow("variant", "Brief experiment", "Runs the \"brief\" experiment with this variant; its options override the three rows above.", [
+        { label: "off", value: {} },
+        ...VARIANT_NAMES.map((v) => ({ label: v, value: { variant: v } })),
+      ], p.variant ? { label: p.variant, value: { variant: p.variant } } : { label: "off", value: {} }),
     ];
   }
 

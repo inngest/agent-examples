@@ -74,6 +74,7 @@ export type AttemptMessage =
       reasoningTokens?: number; // of outputTokens
       maxTokens?: number; // this turn's output budget (the reasoning ladder may raise it)
       reasoningOff?: boolean; // the ladder turned reasoning off
+      blank?: boolean; // cut off having written almost nothing but whitespace (whitespaceRunaway)
       inputTokens?: number;
       provider?: string;
     }
