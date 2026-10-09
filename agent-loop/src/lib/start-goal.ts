@@ -2,7 +2,7 @@
 // Targets the dev server or Inngest Cloud depending on env (INNGEST_DEV=1 vs
 // INNGEST_EVENT_KEY).
 import { inngest } from "../inngest/client.js";
-import { goalStarted } from "../inngest/events.js";
+import { goalStarted, type BriefVariant } from "../inngest/events.js";
 
 export type GoalOptions = {
   goalId: string;
@@ -15,6 +15,7 @@ export type GoalOptions = {
   focus?: boolean;
   spec?: boolean;
   examplesPerBrief?: number;
+  variant?: BriefVariant; // brief experiment variant (pnpm eval)
 };
 
 // The goal flags both scripts accept: --model, --max-attempts, --max-stalls,
@@ -60,6 +61,7 @@ export async function startGoal(o: GoalOptions): Promise<string[]> {
         focus: o.focus,
         spec: o.spec,
         examplesPerBrief: o.examplesPerBrief,
+        variant: o.variant,
       },
       // Inngest Sessions: groups the goal-loop run under AI > Sessions in the
       // dashboard. Sessions propagate through step.invoke / step.sendEvent by

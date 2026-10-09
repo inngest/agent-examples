@@ -4,7 +4,7 @@
 import type { AttemptOutcome, ScoredMessage } from "../inngest/channel.js";
 import { GOAL_DEFAULTS } from "../inngest/events.js";
 
-type ApiEvent = { name: string; received_at: string; data: Record<string, any> };
+export type ApiEvent = { name: string; received_at: string; data: Record<string, any> };
 
 export type GoalHistory = {
   startedAt?: string;
@@ -43,7 +43,7 @@ function apiTarget(): { base: string; headers: Record<string, string> } {
 const LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Newest first, paging back with received_before until `after` (or `maxPages`).
-async function fetchEvents(name: string, after = new Date(Date.now() - LOOKBACK_MS).toISOString(), maxPages = 10): Promise<ApiEvent[]> {
+export async function fetchEvents(name: string, after = new Date(Date.now() - LOOKBACK_MS).toISOString(), maxPages = 10): Promise<ApiEvent[]> {
   const { base, headers } = apiTarget();
   const out: ApiEvent[] = [];
   let before: string | undefined;

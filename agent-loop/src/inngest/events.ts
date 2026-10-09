@@ -20,6 +20,17 @@ export const GOAL_DEFAULTS = {
 // Used when neither the event nor the MODEL env var names a model.
 export const DEFAULT_MODEL = "qwen/qwen3-coder-30b-a3b-instruct";
 
+// The brief experiment (see goal-loop and scripts/eval.ts): each variant is a
+// set of brief options. `control` is today's defaults.
+export const BRIEF_VARIANTS = {
+  control: {},
+  spec: { spec: true },
+  examples: { examplesPerBrief: 30 },
+  no_focus: { focus: false },
+} as const satisfies Record<string, { focus?: boolean; spec?: boolean; examplesPerBrief?: number }>;
+export type BriefVariant = keyof typeof BRIEF_VARIANTS;
+export const VARIANT_NAMES = Object.keys(BRIEF_VARIANTS) as BriefVariant[];
+
 // --- inbound: start and steer a goal ---
 
 export const goalStarted = eventType("goal/started", {
@@ -35,6 +46,7 @@ export const goalStarted = eventType("goal/started", {
     focus: z.boolean().optional(), // default true: each attempt works on one failing function
     spec: z.boolean().optional(), // default false: include Go's documentation (data/spec.txt) in the brief
     examplesPerBrief: z.number().int().positive().max(50).optional(), // default 10; with a focus, drawn from that function's cases
+    variant: z.enum(VARIANT_NAMES).optional(), // run the "brief" experiment with this fixed variant; its options override focus/spec/examplesPerBrief
   }),
 });
 
@@ -88,5 +100,6 @@ export const goalFinished = eventType("goal/finished", {
     attempts: z.number(),
     costUsd: z.number(),
     tokens: z.object({ input: z.number(), output: z.number() }),
+    variant: z.string().optional(), // the brief variant, when the run had one
   }),
 });

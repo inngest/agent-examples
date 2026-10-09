@@ -402,3 +402,13 @@
   - TUI: a goal restarted elsewhere while the review editor is up closes the editor.
   - trace-dump.py no longer crashes on a non-dict tool output.
 - Checks: typecheck, `check:harness` (all pass, +1 case), `check:tools` 45, `check:selftest` green; default brief byte-identical to the snapshot taken before the simplification.
+
+### Evals and the `brief` experiment (2026-10-09)
+
+- For the video demo: Inngest Experiments (variants side by side) and more scores than the single `check.fail_rate` line.
+- **Event**: `goal/started` takes an optional `variant` (`control`, `spec`, `examples`, `no_focus`; the existing brief flags as named option sets in `BRIEF_VARIANTS`); `goal/finished` carries it back so the report can group runs.
+- **Loop**: with a variant, `group.experiment("brief", ...)` with `experiment.fixed(variant)` runs before `settings` (each variant is a `step.run`, which the SDK requires); `focus`, `spec` and `examplesPerBrief` come from its result, else from the event. A run without a variant has no extra steps. `RESERVED_STEPS` 10 -> 12 (select, variant step, score-final), so `MAX_ATTEMPTS_CAP` 99 -> 98.
+- **Scores**: `recordScore` became `recordScores`, all of a step's scores in one `step.run`. `score-<i>` now writes 7 per-attempt scores (after `afterAttempt`, so outcome and delta are known); `score-holdout` became `score-final` (train/holdout pass rate, generalization gap, solved, attempts, kept attempts, best-at attempt, cost, tokens, per-function train pass rates), run-scoped via an explicit `runId` and attributed to the experiment with `inngest.score.experiment`.
+- **Evals**: `evals/brief-v1.json`, `pnpm eval` (one run per variant x repeat, `--sequential` for the local backend) and `pnpm eval:report` (per-variant table from `goal/finished` events; `fetchEvents` is now exported from goal-history.ts).
+- **Review fixes**: a goal no longer parks for review on its last attempt (nothing to resume into; an eval where nothing was ever kept used to sit 3 days in `waitForEvent`); eval sends `maxStalls = maxAttempts + 1`; `--sequential` has a per-run `--timeout-min` and survives a failed poll; batch ids include seconds; unknown `--variants` names are an error; `attempt.delta_failed` uses the rebaselined best.
+- Checks: typecheck, `check:harness`, `check:selftest`, `check:tools` pass. Not yet run against Cloud.

@@ -1,15 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
-import { NonRetriableError } from "inngest";
+import { NonRetriableError, experiment } from "inngest";
 import { DATA_DIR } from "../lib/paths.js";
 import { inngest } from "./client.js";
 import { agentAttempt, isAttemptResult } from "./agent-attempt.js";
-import { DEFAULT_MODEL, GOAL_DEFAULTS, goalAttemptScored, goalFinished, goalReviewSubmitted, goalStarted } from "./events.js";
+import { BRIEF_VARIANTS, DEFAULT_MODEL, GOAL_DEFAULTS, VARIANT_NAMES, goalAttemptScored, goalFinished, goalReviewSubmitted, goalStarted } from "./events.js";
 import { runCheck } from "../../check/run-check.js";
 import { runCheckSandbox } from "../../check/run-check-sandbox.js";
 import type { CaseSet, CheckResult } from "../../check/types.js";
 import { backend, type Files } from "../lib/backend.js";
-import { recordScore } from "../lib/score.js";
+import { recordScores } from "../lib/score.js";
 import { pickFocus, unimplemented } from "../lib/prompt.js";
 import { liveLoop } from "../lib/live.js";
 import { modelBaseUrl, modelProfile } from "../lib/openrouter.js";
@@ -23,12 +23,12 @@ import { excerpt } from "./channel.js";
 // (invoke, scored event, score, live publish), 5-6 when it did (+ check,
 // + revert unless kept, + rebaseline if the check itself changed mid-run),
 // and 3 more when it ends in a review wait (live, wait, live): at most 10.
-// The reserve covers settings, baseline, live-started, holdout,
-// score-holdout, finished and live-finished.
+// The reserve covers experiment select, the variant step, settings, baseline,
+// live-started, holdout, score-final, finished and live-finished.
 const STEP_LIMIT = 1000;
 const STEPS_PER_ITERATION = 10;
-const RESERVED_STEPS = 10;
-const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_ITERATION); // 99
+const RESERVED_STEPS = 12;
+const MAX_ATTEMPTS_CAP = Math.floor((STEP_LIMIT - RESERVED_STEPS) / STEPS_PER_ITERATION); // 98
 
 // `against`: the best result's failBits, so the check reports the cases this
 // attempt broke (train only).
@@ -43,11 +43,24 @@ export const goalLoop = inngest.createFunction(
     concurrency: [{ key: "event.data.goalId", limit: 1 }],
     triggers: [goalStarted],
   },
-  async ({ event, step }) => {
+  async ({ event, step, group, runId }) => {
     const { goalId } = event.data;
     const maxAttempts = Math.min(event.data.maxAttempts ?? GOAL_DEFAULTS.maxAttempts, MAX_ATTEMPTS_CAP);
     const maxStalls = event.data.maxStalls ?? GOAL_DEFAULTS.maxStalls;
-    const focusOn = event.data.focus ?? true; // one function per attempt (see pickFocus)
+
+    // A run with a variant takes its brief options from the "brief" experiment
+    // (fixed variant, so every variant gets the same number of runs); without
+    // one, from the event.
+    const exp = event.data.variant
+      ? await group.experiment("brief", {
+          variants: Object.fromEntries(
+            VARIANT_NAMES.map((v) => [v, () => step.run(`brief-${v}`, () => BRIEF_VARIANTS[v])]),
+          ),
+          select: experiment.fixed(event.data.variant),
+        })
+      : undefined;
+    const brief: { focus?: boolean; spec?: boolean; examplesPerBrief?: number } = { ...event.data, ...exp?.result };
+    const focusOn = brief.focus ?? true; // one function per attempt (see pickFocus)
 
     // Env is read inside a step, once, so a redeploy with a different MODEL or
     // REASONING_* can't change a run that's already in flight.
@@ -71,7 +84,7 @@ export const goalLoop = inngest.createFunction(
         profile,
         // Opt-in: Go's documentation for the brief, read here so a replay
         // sees the same text even if a redeploy changed the file.
-        spec: event.data.spec ? fs.readFileSync(path.join(DATA_DIR, "spec.txt"), "utf8") : undefined,
+        spec: brief.spec ? fs.readFileSync(path.join(DATA_DIR, "spec.txt"), "utf8") : undefined,
         attempt: {
           slug: model,
           maxTurns: event.data.maxTurnsPerAttempt ?? GOAL_DEFAULTS.maxTurnsPerAttempt,
@@ -113,6 +126,8 @@ export const goalLoop = inngest.createFunction(
     // step results only (see loop-state.ts), so each replay takes the same path.
     let state = initialState(baseline);
     let attempts = 0;
+    let keptAttempts = 0;
+    let bestAtAttempt = 0; // 0: the baseline is still the best
 
     for (let i = 1; i <= maxAttempts; i++) {
       attempts = i;
@@ -143,8 +158,8 @@ export const goalLoop = inngest.createFunction(
               stubs,
               ...(settings.spec ? { spec: settings.spec } : {}),
               // Only the focus function's list travels with the attempt.
-              ...(event.data.examplesPerBrief
-                ? { examplesPerBrief: event.data.examplesPerBrief, focusExamples: focus ? best.examplesByFn?.[focus.fn] : undefined }
+              ...(brief.examplesPerBrief
+                ? { examplesPerBrief: brief.examplesPerBrief, focusExamples: focus ? best.examplesByFn?.[focus.fn] : undefined }
                 : {}),
             },
             model: { ...settings.attempt, learned: state.learned },
@@ -181,8 +196,6 @@ export const goalLoop = inngest.createFunction(
           report: result.report,
         }),
       );
-      await recordScore(step, `score-${i}`, "check.fail_rate", result.score);
-
       // The check changed under us (e.g. cases edited mid-run): re-score the
       // incumbent with the new check so scores stay comparable. A change made
       // during an unchanged attempt is picked up by the next changed one.
@@ -195,6 +208,19 @@ export const goalLoop = inngest.createFunction(
       const after = afterAttempt(state, { i, attempt, result, focus, rebaselined });
       state = after.state;
       const { outcome } = after;
+      if (outcome === "kept") {
+        keptAttempts++;
+        bestAtAttempt = i;
+      }
+      await recordScores(step, `score-${i}`, {
+        "check.fail_rate": result.score,
+        "attempt.pass_rate": 1 - result.score,
+        "attempt.delta_failed": result.failed - (rebaselined ?? best).failed,
+        "attempt.kept": outcome === "kept",
+        "attempt.turns": attempt.turns,
+        "attempt.idle_turns": attempt.idleTurns,
+        "attempt.cost_usd": attempt.costUsd,
+      });
       if (outcome !== "kept" && attempt.changed && ws.revert) {
         const revert = ws.revert;
         await step.run(`revert-${i}`, async () => {
@@ -221,8 +247,9 @@ export const goalLoop = inngest.createFunction(
 
       if (result.pass) break;
 
-      // Park for a human after maxStalls attempts without progress.
-      if (state.stalls >= maxStalls) {
+      // Park for a human after maxStalls attempts without progress (not on
+      // the last attempt: there is nothing to resume into).
+      if (i < maxAttempts && state.stalls >= maxStalls) {
         await liveLoop(step, `live-review-${i}`, goalId, {
           type: "review.waiting",
           i,
@@ -249,7 +276,27 @@ export const goalLoop = inngest.createFunction(
     // Scored once, on the final best commit; never shown to an agent.
     const { best, costUsd, tokens } = state;
     const holdout = await step.run("holdout", () => check(best, "holdout"));
-    await recordScore(step, "score-holdout", "holdout.fail_rate", holdout.score);
+    // Run-scoped, and attributed to the experiment when there is one. Per
+    // function: train only, which is all the check reports per function.
+    await recordScores(
+      step,
+      "score-final",
+      {
+        "train.pass_rate": 1 - best.score,
+        "holdout.pass_rate": 1 - holdout.score,
+        generalization_gap: holdout.score - best.score,
+        solved: holdout.pass,
+        attempts,
+        kept_attempts: keptAttempts,
+        best_at_attempt: bestAtAttempt,
+        cost_usd: costUsd,
+        tokens_total: tokens.input + tokens.output,
+        ...Object.fromEntries(
+          Object.entries(best.byFn ?? {}).map(([fn, v]) => [`fn.${fn}.pass_rate`, v.total ? 1 - v.failed / v.total : 1]),
+        ),
+      },
+      { experiment: exp?.experimentRef, runId },
+    );
 
     const bestSummary = { commit: best.commit, failed: best.failed, total: best.total, score: best.score };
     const holdoutSummary = {
@@ -268,6 +315,7 @@ export const goalLoop = inngest.createFunction(
         attempts,
         costUsd,
         tokens,
+        variant: event.data.variant,
       }),
     );
 

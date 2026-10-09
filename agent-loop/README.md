@@ -358,6 +358,7 @@ Any model on OpenRouter should run without per-model flags:
 |---|---|
 | `pnpm goal:watch -- --goal <id> …` | the TUI (see above) |
 | `pnpm goal:send -- --goal <id> …` | send `goal/started` without the TUI (same flags) |
+| `pnpm eval -- …` / `pnpm eval:report -- --batch <id>` | run and summarize an eval set (see Evals & experiments) |
 | `pnpm workspace:reset` | recreate `workspace/` from the stubs (local backend) |
 | `pnpm inngest` / `pnpm dev` | dev server / worker for local runs |
 | `pnpm start:worker` | the Connect worker (what Cloud runs) |
@@ -393,9 +394,52 @@ request as its input and the response as its output. With `MODEL_CALL=worker`:
 A failed call is classified for retry: timeouts, 408, 429 and 5xx are retried
 by the step; any other 4xx is non-retriable (the request itself is wrong).
 
+## Evals & experiments
+
+The eval case is the full semver goal, repeated. What varies is the brief, as
+an Inngest **Experiment** named `brief` with four variants (`BRIEF_VARIANTS` in
+`src/inngest/events.ts`):
+
+| Variant | Brief |
+|---|---|
+| `control` | today's defaults |
+| `spec` | Go's documentation included (`--spec`) |
+| `examples` | 30 examples per brief (`--examples 30`) |
+| `no_focus` | the whole report, not one function (`--no-focus`) |
+
+A `goal/started` with a `variant` runs `group.experiment("brief", ...)` with
+that variant fixed, so each variant gets the same number of runs. Without a
+`variant` nothing changes.
+
+Scores (`src/lib/score.ts`):
+
+- **Per attempt** (step `score-<i>`): `check.fail_rate`, `attempt.pass_rate`,
+  `attempt.delta_failed`, `attempt.kept`, `attempt.turns`, `attempt.idle_turns`,
+  `attempt.cost_usd`.
+- **Final** (step `score-final`, run-scoped, attributed to the experiment):
+  `train.pass_rate`, `holdout.pass_rate`, `generalization_gap`, `solved`,
+  `attempts`, `kept_attempts`, `best_at_attempt`, `cost_usd`, `tokens_total`, and
+  `fn.<Name>.pass_rate` per function (train, the only per-function data the
+  check produces).
+
+```sh
+pnpm eval -- [--set brief-v1] [--repeats N] [--max-attempts N] [--variants control,spec] [--sequential] [--timeout-min N]
+pnpm eval:report -- --batch eval-brief-v1-<yyyymmdd-hhmmss>
+```
+
+`pnpm eval` reads `evals/<set>.json`, sends one run per variant and repeat
+(goal id `eval-<set>-<yyyymmdd-hhmmss>-<variant>-r<k>`, `maxStalls = maxAttempts + 1`
+so it never parks for a review), and prints the batch id. `pnpm eval:report`
+prints one row per variant: n, mean train and holdout pass rate, gap, solved,
+mean attempts and cost.
+
+On the sandbox backend (Inngest Cloud) the runs go in parallel. The local
+backend shares one `workspace/` git repo, so use `--sequential`: it sends a run,
+waits for its `goal/finished` (up to `--timeout-min`, default 10 per attempt), then sends the next.
+
 ## Limits and gotchas
 
-- **Step limit.** Inngest caps a run at 1,000 steps, which caps a goal at 99
+- **Step limit.** Inngest caps a run at 1,000 steps, which caps a goal at 98
   attempts. Chaining runs past that isn't built.
 - **Outages longer than the retries.** State always survives a worker outage,
   but if the worker is gone longer than the retry window of the function that
