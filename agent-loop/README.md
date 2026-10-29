@@ -19,6 +19,9 @@ cut off mid tool call. **The loop keeps going anyway**: every one of those is
 absorbed by the harness as a stall, a refused call or a revert, and the run
 moves on. `BUILD_LOG.md` is the blow-by-blow history of building and running it.
 
+**Walkthrough:** [Building a durable /goal agent loop that survives crashes](https://www.inngest.com/blog/building-a-durable-goal-agent-loop-that-survives-crashes)
+on the Inngest blog covers how this was built and why the harness is shaped the way it is.
+
 ```
 goal/started
    │
