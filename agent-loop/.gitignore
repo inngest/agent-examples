@@ -1,0 +1,6 @@
+node_modules
+.env
+# The agent's workspace is its own git repo, created by `pnpm workspace:reset`.
+workspace/
+check/.tmp/
+.inngest/

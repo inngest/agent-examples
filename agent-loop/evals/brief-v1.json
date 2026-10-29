@@ -1,0 +1,7 @@
+{
+  "name": "brief-v1",
+  "variants": ["control", "spec", "examples", "no_focus"],
+  "repeats": 2,
+  "maxAttempts": 15,
+  "model": "qwen/qwen3-coder-30b-a3b-instruct"
+}

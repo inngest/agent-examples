@@ -1,0 +1,53 @@
+# Render blueprint for the token-streaming-agent example (see
+# token-streaming-agent/README.md). Both services build from the example
+# directory via rootDir; other examples in this monorepo are untouched.
+#
+# Deploy: Render dashboard → New → Blueprint → select this repo. You'll be
+# prompted once per unique secret (sync: false) below:
+#   - INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY — from app.inngest.com
+#   - OPENROUTER_API_KEY — https://openrouter.ai/keys; all model traffic
+#     (chat turns + judge scoring) goes through OpenRouter.
+services:
+  # Next.js web app: chat UI, POST /api/chat, realtime token minting.
+  # Sends events + mints tokens only — never runs a step or calls a model.
+  - type: web
+    name: token-streaming-agent-web
+    runtime: docker
+    rootDir: token-streaming-agent
+    dockerfilePath: ./Dockerfile.web
+    plan: free
+    envVars:
+      # Sends chat/message.sent events to Inngest Cloud.
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      # Mints short-lived realtime subscription tokens for the browser.
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      # Do NOT set INNGEST_DEV here: unset means Inngest Cloud, which is
+      # what production wants.
+
+  # Bun Connect worker: runs the durable chat-agent function. Connect is an
+  # outbound WebSocket, so a portless background worker is exactly right.
+  - type: worker
+    name: token-streaming-agent-worker
+    runtime: docker
+    rootDir: token-streaming-agent
+    dockerfilePath: ./Dockerfile.worker
+    plan: starter
+    envVars:
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      # Score writes (inngest.score.experiment) go through the same client.
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      # All model calls (chat + judges) go through OpenRouter via the
+      # OpenAI-compatible SDK (see src/worker/openrouter.ts).
+      - key: OPENROUTER_API_KEY
+        sync: false
+      # The chat-model experiment buckets sessions 50/50 into MODEL_A vs
+      # MODEL_B; code defaults are anthropic/claude-sonnet-5 vs
+      # nvidia/nemotron-3-ultra-550b-a55b — override here if desired.
+      # Judge scores each run; pinned to Haiku to keep demo costs down
+      # (code default is anthropic/claude-opus-4.8).
+      - key: JUDGE_MODEL
+        value: anthropic/claude-haiku-4.5
