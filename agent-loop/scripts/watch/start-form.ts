@@ -3,7 +3,8 @@
 // Enter starts, Esc closes. Flags given on the command line become the form's
 // starting values, so `--spec` etc. still work as presets.
 import { matchesKey, truncateToWidth, visibleWidth, type Component } from "@mariozechner/pi-tui";
-import { GOAL_DEFAULTS, VARIANT_NAMES } from "../../src/inngest/events.js";
+import { GOAL_DEFAULTS } from "../../src/config.js";
+import { VARIANT_NAMES } from "../../src/inngest/events.js";
 import type { GoalOptions } from "../../src/lib/start-goal.js";
 import { c } from "./format.js";
 
@@ -36,7 +37,7 @@ export class StartForm implements Component {
 
   constructor(
     preset: Partial<GoalOptions>,
-    private readonly opts: { target: string; resetsWorkspace: boolean; onStart: (o: GoalOptions) => void; onCancel: () => void },
+    private readonly opts: { target: string; onStart: (o: GoalOptions) => void; onCancel: () => void },
   ) {
     const p = preset;
     const reasoning: Choice<Partial<GoalOptions>>[] = [
@@ -151,7 +152,6 @@ export class StartForm implements Component {
       out.push(fit(`${on ? c.magenta("▸") : " "} ${(on ? c.bold : (s: string) => s)(r.label.padEnd(labelWidth))}${value}`));
     });
     out.push("", fit(c.dim(`  ${this.rows[this.selected]!.help}`)));
-    if (this.opts.resetsWorkspace) out.push(fit(c.yellow("  Starting resets the local workspace to the stubs.")));
     if (this.error) out.push(fit(c.red(`  ${this.error}`)));
     out.push("", fit(c.dim("  ↑↓ move · ←→ change · Enter start · Esc cancel")));
     return out;

@@ -103,7 +103,7 @@ function stepLine(m: Step, budget0: number | undefined): string {
   switch (m.type) {
     case "turn": {
       const tok = m.inputTokens ? `in ${kTok(m.inputTokens)} · out ${kTok(m.outputTokens)}` : `${m.outputTokens} tok`;
-      // The reasoning ladder at work (see agent-attempt): a raised budget, reasoning off.
+      // The reasoning ladder at work (see src/models/openrouter.ts): a raised budget, reasoning off.
       const ladder = [m.maxTokens && budget0 && m.maxTokens > budget0 ? `budget ${kTok(m.maxTokens)}` : "", m.reasoningOff ? "reasoning off" : ""].filter(Boolean);
       return (
         `${c.cyan(`t${m.t}`)}  ${turnSummary(m)}  ${c.dim(tok)}` +

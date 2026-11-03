@@ -2,7 +2,7 @@
 // Realtime has no history, so the watcher starts from this and then applies
 // live messages on top (src/inngest/channel.ts).
 import type { AttemptOutcome, ScoredMessage } from "../inngest/channel.js";
-import { GOAL_DEFAULTS } from "../inngest/events.js";
+import { GOAL_DEFAULTS } from "../config.js";
 
 export type ApiEvent = { name: string; received_at: string; data: Record<string, any> };
 

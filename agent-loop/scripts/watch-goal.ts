@@ -14,7 +14,7 @@
 // messages, and sending start / review events. The rest is in scripts/watch/:
 // state.ts (how messages change the state), render.ts (the dashboard),
 // start-form.ts, chart.ts, review.ts, format.ts.
-import { isDevTarget, targetLabel } from "./watch-target.js"; // must stay first: sets INNGEST_DEV
+import { targetLabel } from "./watch-target.js"; // must stay first: sets INNGEST_DEV
 import { Editor, matchesKey, ProcessTerminal, TUI, type Component } from "@mariozechner/pi-tui";
 import { subscribe } from "inngest/realtime";
 import { inngest } from "../src/inngest/client.js";
@@ -22,8 +22,6 @@ import { goalReviewSubmitted } from "../src/inngest/events.js";
 import { goalChannel, type AttemptMessage, type LoopMessage } from "../src/inngest/channel.js";
 import { loadGoalHistory } from "../src/lib/goal-history.js";
 import { parseGoalArgs, startGoal, type GoalOptions } from "../src/lib/start-goal.js";
-import { resetWorkspace } from "../src/lib/reset-workspace.js";
-import { backend } from "../src/lib/backend.js";
 import { c } from "./watch/format.js";
 import { applyAttempt, applyHistory, applyLoop, applyStartSent, createState } from "./watch/state.js";
 import { renderDashboard } from "./watch/render.js";
@@ -42,10 +40,6 @@ if (!goalId && argv.includes("--start")) {
 // the dashboard fills the window and quitting gives the scrollback back.
 // --inline renders in place in the normal buffer instead.
 const fullScreen = !argv.includes("--inline");
-
-// The local backend shares one workspace on this machine, so a new goal starts
-// from fresh stubs. A Cloud worker (sandbox backend) seeds from step state.
-const resetsWorkspace = isDevTarget && backend() === "local";
 
 const state = createState(goalArgs);
 
@@ -93,7 +87,6 @@ async function start(o: GoalOptions) {
   state.flash = c.dim("starting…");
   tui.requestRender();
   try {
-    if (resetsWorkspace) await resetWorkspace();
     await startGoal(o);
     applyStartSent(state, o);
     state.flash = c.green("sent goal/started");
@@ -125,7 +118,6 @@ function openForm() {
     { ...goalArgs, goalId },
     {
       target: targetLabel,
-      resetsWorkspace,
       onStart: (o) => {
         closeForm();
         void start(o);

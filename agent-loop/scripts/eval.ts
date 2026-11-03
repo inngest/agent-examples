@@ -3,8 +3,7 @@
 // each with a fixed brief variant so every variant gets the same number of runs.
 // Goal ids are eval-<set>-<yyyymmdd-hhmmss>-<variant>-r<k>; the part before the
 // variant is the batch id that `pnpm eval:report -- --batch <id>` takes.
-// --sequential sends a run, waits for its goal/finished, then the next (the
-// local backend shares one workspace/ repo, so runs can't overlap there).
+// --sequential sends a run, waits for its goal/finished, then the next.
 import fs from "node:fs";
 import path from "node:path";
 import { VARIANT_NAMES, type BriefVariant } from "../src/inngest/events.js";
@@ -29,7 +28,7 @@ const set = JSON.parse(fs.readFileSync(file, "utf8")) as EvalSet;
 const repeats = Number(get("--repeats") ?? set.repeats);
 const maxAttempts = Number(get("--max-attempts") ?? set.maxAttempts);
 const requested = get("--variants")?.split(",") ?? set.variants;
-const unknown = requested.filter((v) => !(VARIANT_NAMES as string[]).includes(v));
+const unknown = requested.filter((v) => !(VARIANT_NAMES as readonly string[]).includes(v));
 const variants = requested as BriefVariant[];
 const timeoutMin = Number(get("--timeout-min") ?? maxAttempts * 10);
 if (unknown.length) console.error(`unknown variants: ${unknown.join(", ")}`);

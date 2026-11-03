@@ -1,4 +1,4 @@
-// Realtime contract between the worker (goal-loop and agent-attempt publish)
+// Realtime contract between the worker (the goal and coder agents publish)
 // and `pnpm goal:watch` (subscribes). One channel per goal, two topics:
 //   loop     LoopMessage: goal-level progress, one message per decision
 //   attempt  AttemptMessage: live detail of the attempt in flight
@@ -79,7 +79,7 @@ export type AttemptMessage =
       provider?: string;
     }
   | { type: "tool"; i: number; t: number; n: number; name: string; result: string }
-  // finish_attempt was refused because the attempt hadn't changed any file yet.
+  // work_finish was refused because the attempt hadn't changed any file yet.
   | { type: "finish.refused"; i: number; t: number };
 
 /** Whitespace-collapsed, clipped text for realtime messages. */

@@ -5,7 +5,7 @@
 // The two overlap, so live messages are deduplicated: by attempt number for
 // scored rows, and by step (turn, tool call) within the running attempt.
 import type { AttemptMessage, LoopMessage, ScoredMessage } from "../../src/inngest/channel.js";
-import { GOAL_DEFAULTS } from "../../src/inngest/events.js";
+import { GOAL_DEFAULTS } from "../../src/config.js";
 import type { GoalHistory } from "../../src/lib/goal-history.js";
 import type { GoalOptions } from "../../src/lib/start-goal.js";
 import { contextWindow } from "../../src/lib/openrouter.js";
