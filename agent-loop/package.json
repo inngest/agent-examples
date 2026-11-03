@@ -8,16 +8,13 @@
   },
   "scripts": {
     "golden": "go run ./golden",
-    "check:tools": "tsx check/tools-selftest.ts",
     "check:selftest": "tsx check/selftest.ts",
     "check:harness": "tsx check/harness-selftest.ts",
     "spec:gen": "tsx scripts/gen-spec.ts",
     "check": "tsx check/run-check.ts",
-    "workspace:reset": "tsx scripts/reset-workspace.ts",
     "dev": "INNGEST_DEV=1 tsx watch --import @inngest/otel/node src/server.ts",
     "start": "tsx --import @inngest/otel/node src/server.ts",
     "start:worker": "tsx --env-file-if-exists=.env --import @inngest/otel/node src/worker.ts",
-    "check:sandbox-smoke": "tsx --env-file-if-exists=.env check/sandbox-smoke.ts",
     "goal:send": "tsx --env-file-if-exists=.env scripts/send-goal.ts",
     "eval": "tsx --env-file-if-exists=.env scripts/eval.ts",
     "eval:report": "tsx --env-file-if-exists=.env scripts/eval-report.ts",
@@ -30,9 +27,8 @@
     "@mariozechner/pi-tui": "^0.73.1",
     "execa": "^10.0.1",
     "express": "^5.2.1",
-    "inngest": "^4.21.1",
+    "inngest": "4.25.1-pr-1826.159",
     "openai": "^6.49.0",
-    "simple-git": "^4.0.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
