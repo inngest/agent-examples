@@ -1,35 +1,42 @@
 // The events this app sends and receives:
-//   goal/started           goal:send / goal:watch -> starts a goal-loop run
-//   goal/review.submitted  goal:watch -> resumes a loop paused for review (step.waitForEvent)
-//   goal/attempt.scored    goal-loop, once per attempt
-//   goal/finished          goal-loop, once at the end
+//   goal/started           goal:send / goal:watch: starts a goal (one thread per goalId)
+//   goal/review.submitted  goal:watch: a note or a stop, into the goal's inbox at any time
+//   goal/attempt.scored    the goal, once per attempt
+//   goal/finished          the goal, once at the end
 // The last three are also how goal:watch rebuilds a goal's history (src/lib/goal-history.ts).
-import { eventType } from "inngest";
+// And the coder's input, `attemptRequested`: what the goal starts each attempt with.
+import { eventType, invoke } from "inngest";
 import { z } from "zod";
 
-// v4 event schemas can't use transforms (input type must equal output type),
-// so .default() is not allowed here. The fields stay optional and goal-loop
-// applies these defaults.
-export const GOAL_DEFAULTS = {
-  maxAttempts: 60,
-  maxStalls: 5,
-  maxTurnsPerAttempt: 8,
-  maxTokensPerTurn: 4000,
-} as const;
+// --- the coder's input ---
 
-// Used when neither the event nor the MODEL env var names a model.
-export const DEFAULT_MODEL = "qwen/qwen3-coder-30b-a3b-instruct";
+export const attemptRequested = invoke(
+  z.object({
+    goalId: z.string(),
+    i: z.number(),
+    // What the model reads: the brief, with the starting code inlined.
+    brief: z.string(),
+    // The code the attempt starts from: the best so far. Sent every time, so a
+    // sandbox recreated after a restart starts from the right code.
+    files: z.record(z.string(), z.string()),
+    maxTurns: z.number(),
+    model: z.object({
+      slug: z.string(),
+      maxTokensPerTurn: z.number(),
+      maxTokensCap: z.number(),
+      supportsReasoning: z.boolean(),
+      reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
+      reasoningMaxTokens: z.number().optional(),
+      // The reasoning-ladder rung to start on (src/models/openrouter.ts).
+      startRung: z.number().optional(),
+    }),
+  }),
+);
 
-// The brief experiment (see goal-loop and scripts/eval.ts): each variant is a
-// set of brief options. `control` is today's defaults.
-export const BRIEF_VARIANTS = {
-  control: {},
-  spec: { spec: true },
-  examples: { examplesPerBrief: 30 },
-  no_focus: { focus: false },
-} as const satisfies Record<string, { focus?: boolean; spec?: boolean; examplesPerBrief?: number }>;
-export type BriefVariant = keyof typeof BRIEF_VARIANTS;
-export const VARIANT_NAMES = Object.keys(BRIEF_VARIANTS) as BriefVariant[];
+// The brief experiment (see src/agents/goal.ts and scripts/eval.ts). What each
+// variant changes is written out where it runs.
+export const VARIANT_NAMES = ["control", "spec", "examples", "no_focus"] as const;
+export type BriefVariant = (typeof VARIANT_NAMES)[number];
 
 // --- inbound: start and steer a goal ---
 
@@ -76,7 +83,7 @@ export const goalAttemptScored = eventType("goal/attempt.scored", {
     turns: z.number(),
     idleTurns: z.number(), // turns that ended without a tool call
     costUsd: z.number(),
-    summary: z.string().optional(), // what the attempt says it did (finish_attempt), clipped
+    summary: z.string().optional(), // what the attempt says it did (work_finish), clipped
     report: z.string().optional(), // the check report for this result (what still fails)
   }),
 });

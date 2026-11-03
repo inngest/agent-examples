@@ -18,7 +18,7 @@ const endpointsUrl = (model: string) => `https://openrouter.ai/api/v1/models/${m
 // refuse a model nothing serves with tools, send `reasoning` only where it's
 // accepted, and keep the turn budget under what providers will generate.
 // It can't tell *how* a model honours reasoning controls; the attempt learns
-// that from what comes back (see reasoning-ladder.ts).
+// that from what comes back (see the ladder in src/models/openrouter.ts).
 export type ModelProfile = {
   // OpenRouter answered 404: no such model (usually a typo in the slug).
   missing?: boolean;
