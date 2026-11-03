@@ -3,12 +3,12 @@
 // (express serve) stays for local dev.
 import http from "node:http";
 import { connect, ConnectionState } from "inngest/connect";
-import { inngest } from "./inngest/client.js";
-import { goalLoop } from "./inngest/goal-loop.js";
-import { agentAttempt } from "./inngest/agent-attempt.js";
+import { agents, inngest } from "./inngest/client.js";
+// Registers the goal and coder agents with `agents`.
+import "./agents/goal.js";
 
 const connection = await connect({
-  apps: [{ client: inngest, functions: [goalLoop, agentAttempt] }],
+  apps: [{ client: inngest, functions: agents.functions() }],
   // Identifies this worker instance for rolling deploys; defaults to hostname.
   instanceId: process.env.INNGEST_INSTANCE_ID,
 });
@@ -22,7 +22,7 @@ const probe = http.createServer((_req, res) => {
 });
 probe.listen(port);
 
-console.log(`goal-loop worker: connected (${connection.state}), backend=${process.env.WORKSPACE_BACKEND ?? "local"}, probe on :${port}`);
+console.log(`goal-loop worker: connected (${connection.state}), probe on :${port}`);
 
 // Block until the connect socket closes gracefully (SIGTERM/SIGINT), then exit.
 await connection.closed;

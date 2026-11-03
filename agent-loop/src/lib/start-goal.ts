@@ -65,9 +65,8 @@ export async function startGoal(o: GoalOptions): Promise<string[]> {
         examplesPerBrief: o.examplesPerBrief,
         variant: o.variant,
       },
-      // Inngest Sessions: groups the goal-loop run under AI > Sessions in the
-      // dashboard. Sessions propagate through step.invoke / step.sendEvent by
-      // default, so every agent-attempt run of this goal lands in the same one.
+      // Inngest Sessions: groups the goal's run under AI > Sessions in the
+      // dashboard, with every coder run it starts.
       { meta: { sessions: { goal_id: o.goalId } } },
     ),
   );

@@ -1,4 +1,7 @@
-export const SYSTEM_PROMPT = `You are a careful TypeScript engineer. You work in a small project through tools: list_files, read_file, edit_file, write_file, typecheck and finish_attempt. All paths are relative to src/ (for example "semver.ts"). Only .ts files can be written. The brief includes the current code, so you can edit straight away; after you change a file, read_file shows the new version. Prefer edit_file for targeted fixes (old_string must match exactly once). Use write_file only to create a file or for a full rewrite; if the file is still stubs, writing the full port once with write_file is fine. Every write or edit is typechecked automatically, so read the errors in the result and fix them. Once the change is made and typechecks, call finish_attempt with a one-line summary right away; don't keep polishing. Every reply is a tool call: never write code, JSON or a tool call as plain text, and never pad a reply with whitespace.`;
+import { EXAMPLES_PER_BRIEF, MAX_CODE_CHARS } from "../config.js";
+import { best, focusMisses, journal, note, regressions, type GoalLog } from "./goal-log.js";
+
+export const SYSTEM_PROMPT =`You are a careful TypeScript engineer. You work in a small project on your own machine through tools: work_run (a shell), work_read, work_edit, work_write and work_finish. All paths are relative to src/ (for example "semver.ts"). The brief includes the current code, so you can edit straight away; after you change a file, work_read shows the new version. Prefer work_edit for targeted fixes (old_string must match exactly once). Use work_write only to create a file or for a full rewrite; if the file is still stubs, writing the full port once with work_write is fine. Every write or edit is typechecked automatically, so read the errors in the result and fix them. Once the change is made and typechecks, call work_finish with a one-line summary right away; don't keep polishing. Every reply is a tool call: never write code, JSON or a tool call as plain text, and never pad a reply with whitespace.`;
 
 // One line of attempt history, carried from attempt to attempt by goal-loop.
 // Everything in it comes from the train check the agents already see a part
@@ -41,11 +44,9 @@ export function pickFocus(byFn: ByFn | undefined, misses: Record<string, number>
   return { fn, failed: v.failed, total: v.total };
 }
 
-// The code the attempt starts from, inlined so the first turn can edit instead
-// of spending turns on list_files and read_file (each one a chance to stall).
-const MAX_CODE_CHARS = 20_000;
-
-const EXAMPLES_PER_BRIEF = 10;
+// The code the attempt starts from is inlined (up to MAX_CODE_CHARS) so the
+// first turn can edit instead of spending turns on reading files (each one a
+// chance to stall).
 
 // A different window of the best result's failing examples for each attempt:
 // a stalled goal otherwise shows every attempt the same ten cases.
@@ -125,7 +126,7 @@ export type BriefInput = {
 export function buildBrief(opts: BriefInput): string {
   const { i, best, humanNote, report, journal, regressions, focus, stubs, code, spec } = opts;
   const parts = [
-    "You're porting golang.org/x/mod/semver to TypeScript in src/semver.ts. Match the Go behavior exactly, including returning \"\" for invalid input instead of throwing. Make one focused change per attempt, guided by the check report below. You can't see or run the check, and it won't change during your attempt. If you believe the report shows the check is wrong, call finish_attempt and explain why in the summary instead of working around it.",
+    "You're porting golang.org/x/mod/semver to TypeScript in src/semver.ts. Match the Go behavior exactly, including returning \"\" for invalid input instead of throwing. Make one focused change per attempt, guided by the check report below. You can't see or run the check, and it won't change during your attempt. If you believe the report shows the check is wrong, say why in your work_finish summary instead of working around it.",
     `Attempt ${i}. Best score so far: ${best.failed}/${best.total} failing.` + (humanNote ? `\nNote from reviewer: ${humanNote}` : ""),
   ];
   if (journal?.length)
@@ -141,7 +142,7 @@ export function buildBrief(opts: BriefInput): string {
     );
   if (stubs?.length)
     parts.push(
-      `Still unimplemented or failing every case: ${stubs.join(", ")}. Implement all of them in this attempt, not one at a time; writing the whole file once with write_file is fine.`,
+      `Still unimplemented or failing every case: ${stubs.join(", ")}. Implement all of them in this attempt, not one at a time; writing the whole file once with work_write is fine.`,
     );
   if (focus)
     parts.push(
@@ -157,13 +158,42 @@ export function buildBrief(opts: BriefInput): string {
     const blocks: string[] = [];
     for (const [p, c] of Object.entries(code).sort(([a], [b]) => a.localeCompare(b))) {
       if (c.length > room) {
-        blocks.push(`src/${p}: (too long to include; use read_file)`);
+        blocks.push(`src/${p}: (too long to include; use work_read)`);
         continue;
       }
       room -= c.length;
       blocks.push(`src/${p}:\n\`\`\`ts\n${c}${c.endsWith("\n") ? "" : "\n"}\`\`\``);
     }
-    parts.push(`Current code (the best version so far, which this attempt starts from). It's exact, so you can copy old_string for edit_file from it:\n\n${blocks.join("\n\n")}`);
+    parts.push(`Current code (the best version so far, which this attempt starts from). It's exact, so you can copy old_string for work_edit from it:\n\n${blocks.join("\n\n")}`);
   }
   return parts.join("\n\n");
+}
+
+/** The function attempt `i` works on, when the goal focuses (see pickFocus). */
+export function focusFor(log: GoalLog, enabled: boolean): Focus | undefined {
+  if (!enabled) return undefined;
+  return pickFocus(best(log).byFn, focusMisses(log));
+}
+
+/**
+ * Attempt `i`'s brief, read off the goal's log: the best code so far and its
+ * report, what the earlier attempts did, the reviewer's note, and the focus.
+ */
+export function attemptBrief(log: GoalLog, i: number, focus: Focus | undefined, options: { examplesPerBrief?: number; specText?: string }): string {
+  const current = best(log);
+  return buildBrief({
+    i,
+    best: { failed: current.failed, total: current.total },
+    humanNote: note(log),
+    report: current.report,
+    examples: current.examples,
+    journal: journal(log),
+    regressions: regressions(log),
+    focus,
+    stubs: unimplemented(current.byFn),
+    code: current.files,
+    spec: options.specText,
+    examplesPerBrief: options.examplesPerBrief,
+    focusExamples: focus && current.examplesByFn?.[focus.fn],
+  });
 }
