@@ -6,11 +6,10 @@
 # for each secret (sync: false): INNGEST_SIGNING_KEY / INNGEST_EVENT_KEY from
 # app.inngest.com (account needs Sandbox access), MODEL_API_KEY (OpenRouter).
 services:
-  # Goal-loop Connect worker (agent-loop): runs goal-loop + agent-attempt on
-  # Node/tsx with the sandbox backend, so there is no local disk state. The
-  # agent's files live in step state, typecheck runs on this worker, and each
-  # grader run executes in a fresh Inngest Sandbox (needs sandbox access on the
-  # Inngest account). Start a run with `pnpm goal:send -- --goal <id>`.
+  # Goal-loop Connect worker (agent-loop): runs the goal and coder agents on
+  # Node/tsx, with no local disk state. Each attempt runs on its own Inngest
+  # Sandbox and the grader on the goal's (needs sandbox access on the Inngest
+  # account). Start a run with `pnpm goal:send -- --goal <id>`.
   - type: worker
     name: goal-loop-worker
     runtime: docker
@@ -35,6 +34,3 @@ services:
       # CoreWeave's nemotron emits runaway whitespace and empty tool calls.
       - key: MODEL_PROVIDERS
         value: Phala
-      # local = git workspace on disk (dev); sandbox = step state + Inngest Sandboxes.
-      - key: WORKSPACE_BACKEND
-        value: sandbox

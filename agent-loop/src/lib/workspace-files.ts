@@ -1,6 +1,5 @@
-// The package.json / tsconfig.json every workspace carries. Shared by
-// reset-workspace.ts (local git workspace) and file-store.ts (temp dir for the
-// in-memory store's typecheck) so both typecheck under identical settings.
+// The package.json / tsconfig.json every attempt's sandbox carries
+// (src/sandboxes.ts), so the model's typecheck matches how the grader runs it.
 export const WORKSPACE_PACKAGE_JSON =
   JSON.stringify({ name: "semver-port", version: "0.0.0", private: true, type: "module" }, null, 2) + "\n";
 

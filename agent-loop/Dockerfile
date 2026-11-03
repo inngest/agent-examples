@@ -1,7 +1,7 @@
-# Connect worker for the goal loop (sandbox backend). Connect is an outbound
-# WebSocket, so this needs no public ingress: a Render background worker.
-# The worker never executes agent code: typechecking runs here (tsc on a temp
-# dir) and the grader runs in a fresh Inngest Sandbox per check.
+# Connect worker for the goal loop. Connect is an outbound WebSocket, so this
+# needs no public ingress: a Render background worker. The worker never
+# executes agent code: each attempt runs on its own sandbox, and the grader on
+# the goal's grader sandbox.
 FROM node:22-slim
 WORKDIR /app
 RUN corepack enable
@@ -18,7 +18,6 @@ COPY data ./data
 COPY workspace-template ./workspace-template
 COPY tsconfig.json ./
 
-ENV WORKSPACE_BACKEND=sandbox
 ENV NODE_ENV=production
 
 # RENDER_GIT_COMMIT is provided by Render; used as the app version for Inngest
