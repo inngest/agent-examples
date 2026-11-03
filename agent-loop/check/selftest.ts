@@ -1,7 +1,5 @@
 // pnpm check:selftest — validates the grader itself against known fixtures.
-import { execa } from "execa";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { scoreImpl, computeCheckVersion, TIMEOUT_MS } from "./run-check.js";
 import { CHECK_DIR, DATA_DIR } from "../src/lib/paths.js";
@@ -61,36 +59,6 @@ async function main() {
     ok(r.report.length <= 2048 && !r.report.includes(CHECK_DIR) && !/\/Users\//.test(r.report), `${name} report <= 2KB, no absolute paths (${r.report.length} chars)`);
   }
   console.log("\n--- sample report (isvalid-only) ---\n" + iv.report + "\n---");
-
-  // end to end: temp git repo with the stub, runCheck through a worktree
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "goal-loop-selftest-"));
-  const savedEnv = process.env.WORKSPACE_DIR;
-  try {
-    fs.mkdirSync(path.join(repo, "src"));
-    fs.copyFileSync(fx("stub-impl.ts"), path.join(repo, "src", "semver.ts"));
-    const g = (...a: string[]) => execa("git", a, { cwd: repo });
-    await g("init", "-q");
-    await g("config", "user.name", "t");
-    await g("config", "user.email", "t@example.invalid");
-    await g("add", "-A");
-    await g("commit", "-q", "-m", "stub");
-    process.env.WORKSPACE_DIR = repo;
-    // paths.ts reads WORKSPACE_DIR at import time, so run the e2e in a fresh process
-    const { stdout } = await execa("node", ["--import", "tsx", "-e", `
-      import { runCheck } from "./check/run-check.ts";
-      const r = await runCheck({ commit: "HEAD", set: "train" });
-      console.log(JSON.stringify({ ...r, report: r.report.length }));
-    `.replace(/^\s+/gm, ""), "--input-type=module"], { cwd: process.cwd(), env: { WORKSPACE_DIR: repo }, extendEnv: true });
-    const r = JSON.parse(stdout.trim().split("\n").pop()!);
-    ok(r.score === 1 && r.commit.length === 40 && r.set === "train", `e2e runCheck(stub commit) score 1, commit ${String(r.commit).slice(0, 8)}`);
-    const wt = (await g("worktree", "list", "--porcelain")).stdout;
-    ok(!wt.includes("check/.tmp"), "worktree removed after runCheck");
-    ok(!fs.existsSync(path.join(CHECK_DIR, ".tmp")) || fs.readdirSync(path.join(CHECK_DIR, ".tmp")).length === 0, "check/.tmp left empty");
-  } finally {
-    if (savedEnv === undefined) delete process.env.WORKSPACE_DIR;
-    else process.env.WORKSPACE_DIR = savedEnv;
-    fs.rmSync(repo, { recursive: true, force: true });
-  }
 
   // The spec shown to agents (pnpm spec:gen) must document the same x/mod
   // version that generated the cases, and golden/go.mod must still pin it.

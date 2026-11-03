@@ -1,21 +1,17 @@
-// The grader. Scores a semver implementation against a golden case set.
-//   scoreImpl: score one impl file (used by selftest and runCheck)
-//   runCheck:  check a workspace commit out into a throwaway worktree and score it
-// CLI: pnpm check -- --commit <sha|HEAD> --set train
-import { randomBytes } from "node:crypto";
-import fs from "node:fs";
+// The grader, run locally in a child process. Scores a semver implementation
+// against a golden case set. The goal grades on its sandbox (check/grade.ts);
+// this is for the selftests and for trying a file by hand.
+// CLI: pnpm check -- --file workspace-template/src/semver.ts --set train
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
-import { CHECK_DIR, REPO_ROOT, WORKSPACE_DIR } from "../src/lib/paths.js";
+import { CHECK_DIR, REPO_ROOT } from "../src/lib/paths.js";
 import { casesPath, scoreFromRunnerOutput, type ScoreResult } from "./score-core.js";
-import type { CaseSet, CheckResult } from "./types.js";
+import type { CaseSet } from "./types.js";
 
 export { computeCheckVersion, sanitizeError, type ScoreResult } from "./score-core.js";
 
 export const TIMEOUT_MS = 30_000;
-
-// ---- scoring ---------------------------------------------------------------
 
 export async function scoreImpl(opts: {
   implPath: string;
@@ -53,26 +49,6 @@ export async function scoreImpl(opts: {
   });
 }
 
-// ---- worktree-based check --------------------------------------------------
-
-const git = (cwd: string, args: string[]) => execa("git", args, { cwd, stdin: "ignore" });
-
-export async function runCheck(opts: { commit: string; set: CaseSet; against?: string }): Promise<CheckResult> {
-  const tmpRoot = path.join(CHECK_DIR, ".tmp");
-  fs.mkdirSync(tmpRoot, { recursive: true });
-  const dir = path.join(tmpRoot, `${Date.now()}-${randomBytes(4).toString("hex")}`);
-  try {
-    await git(WORKSPACE_DIR, ["worktree", "add", "--detach", dir, opts.commit]);
-    const { stdout: sha } = await git(dir, ["rev-parse", "HEAD"]);
-    const scored = await scoreImpl({ implPath: path.join(dir, "src", "semver.ts"), set: opts.set, against: opts.against });
-    return { commit: sha.trim(), ...scored };
-  } finally {
-    await git(WORKSPACE_DIR, ["worktree", "remove", "--force", dir]).catch(() => {});
-    fs.rmSync(dir, { recursive: true, force: true });
-    await git(WORKSPACE_DIR, ["worktree", "prune"]).catch(() => {});
-  }
-}
-
 // ---- CLI -------------------------------------------------------------------
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
@@ -81,14 +57,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     const i = args.indexOf(flag);
     return i >= 0 ? args[i + 1] : undefined;
   };
-  const commit = get("--commit") ?? "HEAD";
+  const file = get("--file") ?? path.join(REPO_ROOT, "workspace-template", "src", "semver.ts");
   const set = (get("--set") ?? "train") as CaseSet;
   if (set !== "train" && set !== "holdout") {
     console.error("--set must be train or holdout");
     process.exit(2);
   }
   const t0 = Date.now();
-  runCheck({ commit, set })
+  scoreImpl({ implPath: file, set })
     .then((r) => {
       if (r.report) console.log(r.report + "\n");
       console.log(JSON.stringify({ ...r, report: undefined, ms: Date.now() - t0 }, null, 2));
