@@ -27,19 +27,19 @@ goal/started
    │
    ▼
  baseline ──▶ ┌──────────────── attempt i ────────────────┐
-              │ agent-attempt (step.invoke)               │
-              │   turn 1..N: step.ai.infer → tool steps   │
-              │   list_files · read_file · edit_file ·    │
-              │   write_file · typecheck · finish_attempt │
+              │ coder agent, on its own sandbox           │
+              │   loop(): model turn, then tool steps     │
+              │   work_run · work_read · work_edit ·      │
+              │   work_write · work_finish                │
               └───────────────────┬───────────────────────┘
                                   ▼
-                  check (train cases, the model never sees it)
+                  check (train cases, on a sandbox the model can't reach)
                                   ▼
           better than best? ── yes ──▶ keep  (stalls = 0)
                   │ no
                   ▼
-            revert (stalls++) ── stalls ≥ maxStalls? ──▶ wait for goal/review.submitted
-                                                         (a human note, or stop)
+            drop it (stalls++) ── stalls ≥ maxStalls? ──▶ wait for goal/review.submitted
+                                                          (a human note, or stop)
    … until the check passes or maxAttempts …
    ▼
  holdout check (cases no attempt ever saw) ──▶ goal/finished
@@ -51,49 +51,52 @@ goal/started
 |---|---|
 | `golden/` | Go program that generates the ground-truth cases from the real `semver` package (`go run ./golden`, byte-identical on rerun). |
 | `data/` | The 22,207 cases, split into **train** (17,752, what the loop scores against) and **holdout** (4,455, scored once at the end) by a hash of each case id. |
-| `check/` | The grader: runs a candidate `semver.ts` against the cases in a child process (`run-check.ts`, `runner.ts`, `score-core.ts`) or in a fresh [Inngest Sandbox](https://www.inngest.com/docs) (`run-check-sandbox.ts`), where each check shows in the run trace as `step.sandbox` create, exec and destroy steps plus upload and score steps, and builds the failure report the next attempt reads. Plus selftests. |
-| `src/inngest/goal-loop.ts` | The loop: settings, baseline, then per attempt: invoke, check, keep or revert, pause for review; holdout, `goal/finished`. |
-| `src/inngest/agent-attempt.ts` | One attempt: prepare the workspace, build the brief, the turn loop (model call → history → tools, each tool call its own step), commit. |
-| `src/inngest/tools.ts` | The six tools and their guard rails. |
+| `check/` | The grader: runs a candidate against the cases (`runner.ts`) and scores the output (`score-core.ts`), building the failure report the next attempt reads. The goal grades on its grader sandbox (`grade.ts`); `run-check.ts` grades a file locally. Plus selftests. |
+| `src/agents/goal.ts` | The goal, an agent on a thread per `goalId`: settings, baseline, then per attempt: start a coder, check, keep or drop, wait for review; holdout, `goal/finished`. Review notes reach its inbox at any time. |
+| `src/agents/coder.ts` | One attempt, an agent: the model, its sandbox, and the loop options (tool call required, stop on `work_finish`, live updates per turn). |
+| `src/sandboxes.ts` | The attempt's sandbox (seeded with the best code, committed to git, its tools) and the grader's. |
+| `src/tools/` | `finish` (refused while nothing changed) and `typechecked`, which wraps the SDK's `edit` and `write` with the `src/` fix and a typecheck after each change. |
+| `src/models/openrouter.ts` | The model: the loop's history as an OpenRouter chat request, provider routing, repaired history, and the reasoning ladder inside each call. |
 | `src/inngest/events.ts`, `channel.ts` | The events (`goal/*`) and the Realtime channel the TUI subscribes to. |
 | `src/lib/loop-state.ts` | What the loop carries between attempts, and the pure `afterAttempt` that updates it (outcome, journal, regressions, focus misses, stalls). |
 | `src/lib/prompt.ts` | The system prompt and `buildBrief`: everything the model is told. |
-| `src/lib/reasoning-ladder.ts` | What to send each turn (budget, reasoning) and how it steps down when a model thinks past it. |
-| `src/lib/history.ts` | What goes back into the message history (placeholders, repaired tool calls, nudges). |
-| `src/lib/model-call.ts` | The request body and the model call (`step.ai.wrap` or `step.ai.infer`). |
-| `src/lib/workspace.ts` | The code being edited, behind one interface: a local git repo or in-memory files (sandbox). |
 | `src/lib/openrouter.ts` | What a model can do on OpenRouter (tools, reasoning, limits, context window). |
+| `images/coder/` | The image of the attempt's sandbox: node, tsc, git. |
 | `scripts/watch-goal.ts`, `scripts/watch/` | The TUI (`pnpm goal:watch`): wiring, state, rendering. |
 | `data/spec.txt`, `scripts/gen-spec.ts` | Go's documentation for the package (pinned `golang.org/x/mod` v0.21.0, the version that made the cases); `pnpm spec:gen` regenerates it. In the brief with `--spec`. |
 | `workspace-template/` | The stub project each goal starts from. |
 
 ## Why it keeps going: the harness
 
-Every piece of state the loop needs lives in Inngest step results, so a worker
+The goal and each attempt are [Inngest Agents](https://www.inngest.com/docs/labs/agents):
+every model call, tool call and sandbox command is a durable step, so a worker
 crash, a redeploy or a cancelled attempt replays from memoized steps instead of
 starting over. On top of that, each misbehaviour we hit has a specific answer:
 
 | The model… | The harness… |
 |---|---|
-| answers in chat instead of calling a tool | sends `tool_choice: "required"`; turns without a tool call don't use the turn budget, are counted as `idleTurns`, and are capped at 4 per attempt |
-| calls `finish_attempt` with a plan before editing anything | refuses that finish (up to twice per attempt) and tells it to make the change |
-| makes things worse | is reverted; the next attempt starts from the best code |
+| answers in chat instead of calling a tool | runs with `toolChoice: "required"`; turns without a tool call get a nudge, don't use the turn budget, are counted as `idleTurns`, and are capped at 4 per attempt |
+| calls `work_finish` with a plan before editing anything | has that finish refused while `git status` shows no change, and is told to make the change |
+| makes things worse | is dropped; the next attempt starts on a fresh sandbox from the best code |
 | changes nothing | costs a stall, with no check run |
 | writes an empty file, or an edit that changes nothing | gets an error back from the tool instead |
-| gets cut off mid tool call | gets a "not valid JSON" tool result; the broken arguments are kept out of the history so the provider doesn't reject the next request |
-| stalls `maxStalls` times in a row | parks the goal on `step.waitForEvent` (up to 3 days) until a human sends a note, which goes into every later attempt's brief |
+| gets cut off mid tool call | gets a schema error back; the broken arguments are kept out of the history so the provider doesn't reject the next request |
+| thinks until it runs out of room, or pads a tool call with whitespace | is asked again within the same model call, one rung up: a nudge, then double the budget, then reasoning off; later attempts start on the rung that worked |
+| stalls `maxStalls` times in a row | waits on the goal's inbox (up to 3 days) until a human sends a note, which goes into every later attempt's brief; a note sent while attempts run lands in the next brief |
 | retries an approach that already failed | sees a journal of the last 5 attempts in its brief: each one's own summary, outcome and per-function change in failing cases |
 | breaks cases that used to pass | is reverted, and the next brief lists the cases that attempt broke ("keep these passing") |
 | stares at the same examples every attempt | gets a different window of 10 failing examples each attempt, rotating through a pool of 60 |
-| spends its first turns on `list_files` and `read_file` | gets the current code in its brief (up to 20,000 chars), so turn 1 can edit |
+| spends its first turns reading files | gets the current code in its brief (up to 20,000 chars), so turn 1 can edit |
 | writes to `src/semver.ts` (paths are relative to `src/`) | has the leading `src/` (or `./`) dropped instead of an error |
 | gets `old_string` almost right | is told which lines are closest (or that only whitespace differs) and gets them quoted exactly, to copy; an ambiguous match lists its line numbers |
 | implements a stub file one function at a time | is told which functions still fail every case and to implement them all in this attempt |
 | rewrites everything and breaks as much as it fixes | once no function is a stub, gets one function to work on per attempt: the one with the fewest focused attempts that weren't kept, most-failing first among equals, so it moves on from a function it can't fix; off with `--no-focus` |
 | crashes, or the attempt is cancelled | counts as a stall; the goal never fails because of one attempt |
 
-The check itself is out of reach: attempts see only its report (failures by
-function plus a capped sample of failing examples), never the case files.
+The check itself is out of reach: it runs on a grader sandbox the goal lists
+code-only, so the model has no tools on it. Attempts see only its report
+(failures by function plus a capped sample of failing examples), never the
+case files.
 Everything carried from one attempt to the next comes from that train check
 and the attempts' own summaries, so the context gets more useful without
 showing any more of the train set than the report does, and none of the holdout. The holdout set
@@ -109,7 +112,7 @@ cd agent-loop
 pnpm install
 cp .env.example .env        # set MODEL_API_KEY (an OpenRouter key)
 pnpm check:selftest         # must be all green
-pnpm check:tools
+pnpm check:harness
 ```
 
 `.env` for local runs:
@@ -118,8 +121,11 @@ pnpm check:tools
 MODEL=nvidia/nemotron-3.5-lightning
 MODEL_PROVIDERS=Phala        # see "Model × provider" below
 INNGEST_DEV=1
-WORKSPACE_BACKEND=local
 ```
+
+The attempts and the grader run on sandboxes, which the dev server runs
+locally. Build the attempt's image once from `images/coder/` as
+`semver-coder:v1`.
 
 Then three terminals:
 
@@ -129,9 +135,8 @@ pnpm dev                     # 2: the worker on :3000
 pnpm goal:watch -- --goal my-first-goal --start --max-attempts 10 --max-stalls 3   # 3: the TUI
 ```
 
-`--start` resets the local workspace to the stubs and sends `goal/started`;
-the TUI then shows the run live. Without the TUI, `pnpm workspace:reset` and
-`pnpm goal:send -- --goal my-first-goal` do the same.
+`--start` sends `goal/started`; the TUI then shows the run live. Without the
+TUI, `pnpm goal:send -- --goal my-first-goal` does the same.
 
 Start long-lived processes (`pnpm inngest`, `pnpm dev`) in your own terminals.
 `pnpm inngest` runs with `--persist`, so run history survives a restart.
@@ -234,11 +239,8 @@ as given (needs `--goal`). **Brief experiment** runs the goal as one
 variant of the `brief` experiment (see Evals & experiments); the variant's
 options override Focus, Go docs and Examples.
 
-On the dev server with the local backend, starting resets the shared
-`workspace/` to the stubs first (the form says so). There is one workspace per
-machine, so don't start a local goal while another local goal is running. On
-Cloud (sandbox backend) every attempt is seeded from step state and nothing is
-reset.
+Every attempt runs on a fresh sandbox seeded with the goal's best code, so
+goals don't share anything and can run side by side.
 
 Starting a goal id that already ran starts a new run under the same id; the TUI
 always shows the latest run of an id.
@@ -250,14 +252,15 @@ to write a useful note:
 
 - **What still fails:** the best attempt's check report, the same one every
   attempt reads: failures by function, then the shortest failing examples.
-- **What the stalled attempts tried:** each one's own `finish_attempt` summary
+- **What the stalled attempts tried:** each one's own `work_finish` summary
   and outcome.
 - An editor, pre-filled with the previous note. A review **replaces** the note,
   so keep what still applies and add to it.
 
 Enter sends `goal/review.submitted` with `continue` and your note; Alt+Enter
 adds a new line; Ctrl+S sends `stop` (the loop scores the holdout and
-finishes). Good notes state a rule the model keeps missing ("a prerelease
+finishes). A review sent while attempts are still running isn't lost: it goes
+into the goal's inbox, and the next attempt's brief carries the note. Good notes state a rule the model keeps missing ("a prerelease
 sorts before its release"), not a single case to special-case.
 
 ### Dev server or Cloud
@@ -279,21 +282,21 @@ pnpm goal:watch -- --goal my-goal --dev        # localhost:8288, no keys
 | live updates | an Inngest Realtime subscription to channel `goal:<goalId>`, topics `loop` and `attempt` |
 | start / review / stop | events sent to Inngest, which routes them to whatever worker is connected |
 
-The worker publishes to that channel from inside the functions
-(`src/lib/live.ts`). Each publish is its own memoized step that swallows
-errors, so a replay never re-sends a message and a Realtime problem can never
-fail or retry a goal. Quitting the TUI (`q` or Ctrl+C) only closes the
+The worker publishes to that channel from the goal and from each attempt's
+`onTurn` (`src/lib/live.ts`). Each publish is its own memoized step that
+swallows errors, so a replay never re-sends a message and a Realtime problem
+can never fail or retry a goal. Quitting the TUI (`q` or Ctrl+C) only closes the
 subscription; the run doesn't know or care whether anyone is watching.
 
 ## Running on Inngest Cloud
 
 The deployed shape is a long-lived [Connect](https://www.inngest.com/docs/setup/connect)
 worker (`src/worker.ts`): it dials out to Inngest over a WebSocket, so it needs
-no public URL. Attempts are graded in Inngest Sandboxes (`WORKSPACE_BACKEND=sandbox`),
-with the files carried in step state instead of a git repo.
+no public URL. Attempts and the grader run on Inngest Sandboxes, as on the dev
+server.
 
-1. Your Inngest account needs Sandbox access. Check with
-   `pnpm check:sandbox-smoke` (Cloud keys in `.env`, `INNGEST_DEV` unset).
+1. Your Inngest account needs Sandbox access, and the `semver-coder:v1` image
+   (`images/coder/`) in your workspace.
 2. Deploy the worker. `render.yaml` here is a Render Blueprint for one Docker
    worker service (`goal-loop-worker`); set `INNGEST_SIGNING_KEY`,
    `INNGEST_EVENT_KEY` and `MODEL_API_KEY` as secrets. Any host that can run
@@ -306,13 +309,11 @@ with the files carried in step state instead of a git repo.
 |---|---|---|
 | `MODEL_API_KEY` | (none) | OpenRouter key (falls back to `OPENROUTER_API_KEY`) |
 | `MODEL` | `qwen/qwen3-coder-30b-a3b-instruct` | default agent model |
-| `MODEL_PROVIDERS` | unset | OpenRouter providers to prefer, comma-separated, tried in order. Unset: the fastest provider that supports every parameter |
+| `MODEL_PROVIDERS` | unset | OpenRouter providers to use, comma-separated, tried in order, with no fallback to others. Unset: the fastest provider that supports every parameter |
 | `MODEL_BASE_URL` | OpenRouter | any OpenAI-compatible endpoint |
-| `MODEL_CALL` | `worker` | `worker`: the worker makes each model call (OpenAI SDK inside `step.ai.wrap`), with a timeout, a log line per turn and per tool call, and trace metadata. `inngest`: `step.ai.infer`, made by Inngest (survives a worker restart; no timeout or logs of ours) |
-| `MODEL_TIMEOUT_MS` | 180000 | per-call timeout with `MODEL_CALL=worker`; a timed-out turn is retried by its step |
+| `MODEL_TIMEOUT_MS` | 180000 | per-call timeout, raised for big turn budgets; a timed-out turn is retried by its step |
 | `INNGEST_DEV` | (unset = Cloud) | `1` for the dev server |
 | `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | | Cloud only |
-| `WORKSPACE_BACKEND` | `local` | `local` (git repo in `workspace/`, check in a child process) or `sandbox` (Cloud only) |
 
 Per goal, `goal/started` also accepts `maxTurnsPerAttempt` (default 8),
 `focus` (default `true`; `--no-focus` on `goal:send` / `goal:watch`), `spec`
@@ -347,14 +348,15 @@ Any model on OpenRouter should run without per-model flags:
 - **Reasoning that won't stop.** Reasoning controls come in three kinds: a
   token budget that's honoured, an effort level that's a hint, and on/off
   only. The listing doesn't say which (mistral-large-4-0 ignored a 1,500-token
-  budget and effort `low`, and thought past 18k tokens). So an attempt watches
-  for turns cut off while mostly reasoning and climbs a ladder: first a nudge
-  ("you ran out of room while thinking; act now"), then a doubled turn budget
-  (up to the model's limit, at most 32k, with the call timeout scaled to
-  match), then reasoning off, which every kind honours. The TUI marks those
-  turns (`budget 8.0k`, `reasoning off`).
-- **Learned once.** When an attempt had to climb and the model then acted,
-  later attempts of the goal start at that rung.
+  budget and effort `low`, and thought past 18k tokens). So when a turn comes
+  back cut off before its tool call, the model (`src/models/openrouter.ts`)
+  asks again within the same call, one rung up: first a nudge ("you ran out of
+  room while thinking; act now"), then a doubled turn budget (up to the
+  model's limit, at most 32k, with the call timeout scaled to match), then
+  reasoning off, which every kind honours. The loop only ever sees the reply
+  that acted. The TUI marks those turns (`budget 8.0k`, `reasoning off`).
+- **Learned once.** When an attempt's replies needed a higher rung, later
+  attempts of the goal start on it.
 
 `--max-tokens` and `--reasoning-max-tokens` still set the starting point.
 
@@ -365,12 +367,10 @@ Any model on OpenRouter should run without per-model flags:
 | `pnpm goal:watch -- --goal <id> …` | the TUI (see above) |
 | `pnpm goal:send -- --goal <id> …` | send `goal/started` without the TUI (same flags) |
 | `pnpm eval -- …` / `pnpm eval:report -- --batch <id>` | run and summarize an eval set (see Evals & experiments) |
-| `pnpm workspace:reset` | recreate `workspace/` from the stubs (local backend) |
 | `pnpm inngest` / `pnpm dev` | dev server / worker for local runs |
 | `pnpm start:worker` | the Connect worker (what Cloud runs) |
-| `pnpm check:selftest` / `pnpm check:tools` | grader and tool selftests |
-| `pnpm check:sandbox-smoke` | grade the stub and a known-good solution in a real Sandbox |
-| `pnpm check -- --commit <sha\|HEAD> --set train` | run the check by hand on a workspace commit |
+| `pnpm check:selftest` / `pnpm check:harness` | grader selftests / the ladder, loop state and brief |
+| `pnpm check -- --file <path> --set train` | run the check by hand on a file (default: the stub) |
 | `python3 scripts/trace-dump.py <since ISO time>` | per-attempt scores, costs, turns and tool calls from the dev server |
 | `pnpm typecheck` | `tsc --noEmit` |
 
@@ -383,28 +383,28 @@ curl -s -X POST localhost:8288/e/test -H 'content-type: application/json' \
 
 ## Seeing what a turn did
 
-Every model turn is an AI step (`turn-N`) in the Inngest trace, with the
-request as its input and the response as its output. With `MODEL_CALL=worker`:
+Every model call and every tool call is a row in the coder run's trace, with
+its input and output, and every sandbox command is a row under it. The agents
+also record model time, tokens, tool calls and tool errors as scores on every
+run.
 
 - **`inngest.ai` metadata** (model, input/output tokens, latency, cost) comes
   from OpenTelemetry: the worker starts with `--import @inngest/otel/node`
   (in `pnpm dev`, `pnpm start`, `pnpm start:worker` and the Dockerfile), which
   instruments the OpenAI SDK so each call emits `gen_ai.*` spans. The
   instrumentation patches `openai` `>=4 <7` only, so `openai` is pinned to v6.
-- **`model_call` metadata** adds what `gen_ai` doesn't carry: OpenRouter's
-  provider, finish reason, reasoning tokens, generation id, and the HTTP status
-  and error of a failed call (`inngest.metadata`, via `metadataMiddleware()`).
-- **Worker logs**, one line per call and per tool call:
-  `[goal #5 turn-6] model call ok in 2310ms · Phala · tool_calls · 1 tool calls · in 9012 / out 341 (reasoning 120) · gen-…`
+- **What the reply said** beyond its text (OpenRouter's provider, finish
+  reason, reasoning tokens, the ladder rung) reaches `onTurn` and the TUI's
+  turn line.
 
-A failed call is classified for retry: timeouts, 408, 429 and 5xx are retried
-by the step; any other 4xx is non-retriable (the request itself is wrong).
+A failed call is retried by its step: timeouts, 408, 409, 429 and 5xx. Any
+other 4xx fails the attempt at once (the request itself is wrong).
 
 ## Evals & experiments
 
 The eval case is the full semver goal, repeated. What varies is the brief, as
-an Inngest **Experiment** named `brief` with four variants (`BRIEF_VARIANTS` in
-`src/inngest/events.ts`):
+an Inngest **Experiment** named `brief` with four variants (written out in
+`src/agents/goal.ts`):
 
 | Variant | Brief |
 |---|---|
@@ -413,16 +413,17 @@ an Inngest **Experiment** named `brief` with four variants (`BRIEF_VARIANTS` in
 | `examples` | 30 examples per brief (`--examples 30`) |
 | `no_focus` | the whole report, not one function (`--no-focus`) |
 
-A `goal/started` with a `variant` runs `group.experiment("brief", ...)` with
-that variant fixed, so each variant gets the same number of runs. Without a
-`variant` nothing changes.
+A `goal/started` with a `variant` runs the whole goal inside
+`group.experiment("brief", ...)` with that variant fixed, so each variant gets
+the same number of runs and every score the goal writes counts toward it.
+Without a `variant` nothing changes.
 
-Scores (`src/lib/score.ts`):
+Scores (the goal's `score({...})`, one step per batch):
 
-- **Per attempt** (step `score-<i>`): `check.fail_rate`, `attempt.pass_rate`,
+- **Per attempt:** `check.fail_rate`, `attempt.pass_rate`,
   `attempt.delta_failed`, `attempt.kept`, `attempt.turns`, `attempt.idle_turns`,
   `attempt.cost_usd`.
-- **Final** (step `score-final`, run-scoped, attributed to the experiment):
+- **Final** (run-scoped, attributed to the experiment):
   `train.pass_rate`, `holdout.pass_rate`, `generalization_gap`, `solved`,
   `attempts`, `kept_attempts`, `best_at_attempt`, `cost_usd`, `tokens_total`, and
   `fn.<Name>.pass_rate` per function (train, the only per-function data the
@@ -439,23 +440,18 @@ so it never parks for a review), and prints the batch id. `pnpm eval:report`
 prints one row per variant: n, mean train and holdout pass rate, gap, solved,
 mean attempts and cost.
 
-On the sandbox backend (Inngest Cloud) the runs go in parallel. The local
-backend shares one `workspace/` git repo, so use `--sequential`: it sends a run,
-waits for its `goal/finished` (up to `--timeout-min`, default 10 per attempt), then sends the next.
+The runs go in parallel. `--sequential` sends a run, waits for its
+`goal/finished` (up to `--timeout-min`, default 10 per attempt), then sends the next.
 
 ## Limits and gotchas
 
-- **Step limit.** Inngest caps a run at 1,000 steps, which caps a goal at 98
-  attempts on the local backend and 69 on the sandbox backend (a sandbox check
-  is 5 steps, not 1). Chaining runs past that isn't built.
+- **Step limit.** Inngest caps a run at 1,000 steps, which caps a goal at 70
+  attempts (an attempt is about 12 steps of the goal's run; the attempt's own
+  turns are steps of its coder run). Chaining runs past that isn't built.
 - **Outages longer than the retries.** State always survives a worker outage,
-  but if the worker is gone longer than the retry window of the function that
-  has to run next (about a minute for an attempt, about 4.5 minutes for the
-  loop), the run fails.
+  but if the worker is gone longer than the retry window of the run that has
+  to go next, the run fails. A failed attempt counts as a stall.
 - **Don't change step ids under a run you care about.** `tsx watch` hot-reloads
   the worker; renaming a step's display `name` is fine, changing its `id` isn't.
-- **A slow turn looks like a hang.** `step.ai.infer` runs the model call on
-  the Inngest side, so a slow provider shows as a turn "running" with no error.
-  Check the provider's throughput before suspecting anything else.
 
-See `HANDOFF.md` for current status and `BUILD_LOG.md` for the full history.
+`BUILD_LOG.md` has the full history of building and running it.
